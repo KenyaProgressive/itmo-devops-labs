@@ -25,6 +25,13 @@ curl http://127.0.0.1:8000/eat?mb={N} # выделить N Мб памяти
 curl http://127.0.0.1:8000/burn  # нагрузить ядро CPU в бесконечном цикле
 ```
 
+Запуск `mydocker.sh`:
+
+```bash
+cd lab1
+./mydocker.sh
+```
+
 ## Часть 1 - Запуск сервиса
 
 Сначала сервис был запущен без какой-либо изоляции:
@@ -181,3 +188,173 @@ INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 - uts - изолирует хостнейм и доменное имя
 - ipc - изолирует ipc механизмы (семафоры, очереди, сокеты...)
 
+---
+
+## Часть 3 - cgroups
+
+Сначала мы убедились, что на хосте используется cgroup v2 и доступные контроллеры:
+```bash
+❯ stat -fc %T /sys/fs/cgroup
+cgroup2fs
+
+❯ cat /sys/fs/cgroup/cgroup.controllers
+cpuset cpu io memory hugetlb pids rdma misc dmem
+```
+
+Все круто. У нас cgroup v2 и есть контроллеры cpu/memory/pids. Переходим к созданию cgroups.
+
+Запускаем наш `mydocker.sh`, получаем хостовый pid uvicorn (потому что cgroup настраивается со стороны хоста). Создаем cgroup:
+
+```bash
+❯ sudo mkdir /sys/fs/cgroup/lab1
+❯ ls -la /sys/fs/cgroup/lab1
+total 0
+drwxr-xr-x  2 root root 0 Sep 20 23:01 .
+dr-xr-xr-x 13 root root 0 Sep 20 23:01 ..
+-r--r--r--  1 root root 0 Sep 20 23:01 cgroup.controllers
+-r--r--r--  1 root root 0 Sep 20 23:01 cgroup.events
+-rw-r--r--  1 root root 0 Sep 20 23:01 cgroup.freeze
+--w-------  1 root root 0 Sep 20 23:01 cgroup.kill
+-rw-r--r--  1 root root 0 Sep 20 23:01 cgroup.max.depth
+...
+```
+
+Для поставленной задачи нас впервую очередь интересуют:
+- cgroup.procs (pid процессов, которые входят в cgroup)
+- memory.max (лимит по памяти)
+- memory.current (текущий объем памяти в байтах)
+- memory.events (события, которые происходят в cgroup)
+- cpu.max (лимит по cpu, квота процессорного времени)
+- cpu.stat (статистика использования cpu, троттлинг)
+- pids.max (максимальное количество процессов в cgroup)
+- pids.current (текущее количество процессов в cgroup)
+
+Пробуем разместить наш uvicorn процесс в созданный cgroup:
+```bash
+echo 82962 | sudo tee /sys/fs/cgroup/lab1/cgroup.procs  # 82962 - host pid uvicorn
+
+❯ cat /proc/82962/cgroup
+0::/lab1 # помещенный процесс в созданный cgroup
+```
+
+Навесим лимит по памяти. Пусть будет лимит в 32 мб. Чтобы повесить лимит в 32 мб, нужно записать в файл `/sys/fs/cgroup/lab1/memory.max`:
+```bash
+❯ echo $((32 * 1024 * 1024)) | sudo tee /sys/fs/cgroup/lab1/memory.max
+```
+
+Теперь попробуем словить оом. Курлим `/eat?mb=100`:
+```bash
+❯ curl 'http://10.1.1.2:8000/eat?mb=100'
+{"allocated_mb":100,"total_allocations":1}
+
+❯ cat /sys/fs/cgroup/lab1/memory.events
+low 0
+high 0
+max 318
+oom 0
+oom_kill 0
+oom_group_kill 0
+sock_throttled 0
+```
+
+ООМ не словили :(. Но видно, что мы 318 раз упирались в memory.max. Возможно виновник - swap. Проверим:
+
+```bash
+❯ cat /sys/fs/cgroup/lab1/memory.swap.max 
+max # swap не ограничен
+
+❯ cat /sys/fs/cgroup/lab1/memory.swap.current
+74170368 # ~74 мб
+
+❯ cat /sys/fs/cgroup/lab1/memory.current
+33087488 # ~32 мб
+```
+
+Походу и правда беда в swap (точнее swap засейвил от ООМ). То есть RAM дошел до 32 мб, уперся в лимит, ядро начало вытеснять страницы в swap. Запретим swap:
+
+```bash
+❯ echo 0 | sudo tee /sys/fs/cgroup/lab1/memory.swap.max
+0
+```
+
+И получилось словить ООМ:
+
+![oom](screens/oom.png)
+
+Пустой ответ от сервера, потому что uvicorn убился во время обработки `/eat`
+
+Переходим к ограничению CPU. Допустим задаём лимит на 0.5 CPU:
+```bash
+❯ echo "50000 100000" | sudo tee /sys/fs/cgroup/lab1/cpu.max
+50000 100000
+```
+
+Что это значит? Это значит, что за каждые 100000 мкс процессу разрешено использовать цпу только 50000 мкс. То есть получается 50000/100000 = 0.5 CPU.
+
+Снимим статистику до теста `/burn`:
+```bash
+❯ cat /sys/fs/cgroup/lab1/cpu.stat
+usage_usec 156818
+user_usec 112331
+system_usec 44487
+nice_usec 0
+core_sched.force_idle_usec 0
+nr_periods 27
+nr_throttled 0
+throttled_usec 0
+nr_bursts 0
+burst_usec 0
+```
+
+Запускаем наш `/burn`:
+```bash
+❯ curl http://10.1.1.2:8000/burn
+❯ cat /sys/fs/cgroup/lab1/cpu.stat
+usage_usec 16922377
+user_usec 16840699
+system_usec 81678
+nice_usec 0
+core_sched.force_idle_usec 0
+nr_periods 770
+nr_throttled 330
+throttled_usec 16715042
+nr_bursts 0
+burst_usec 0
+```
+
+Словили троттлинг! Процесс 330 раз (`nr_throttled`) был ограницен по цпу (`throttled_usec` - время, в течение которого выполнение процесса было приостановлено).
+
+Переходим к ограничению количетсва процессов, оно же `pids.max`:
+
+```bash
+❯ echo 20 | sudo tee /sys/fs/cgroup/lab1/pids.max # ограничиваем кол-во процессов
+20
+```
+
+До запуска нагрузки в cgroup было 7 процессов и 0 попыток форков процессов за установленный лимит:
+```bash
+❯ cat /sys/fs/cgroup/lab1/pids.current
+7
+
+❯ cat /sys/fs/cgroup/lab1/pids.events
+max 0
+```
+
+После чего стартуем форк-бомбу через `stress-ng` и параллельно смотрим максимальное количество процессов в cgroup:
+```bash
+❯ bash -c '
+    echo $$ | sudo tee /sys/fs/cgroup/lab1/cgroup.procs >/dev/null
+    exec stress-ng --fork 50 --timeout 10s
+' # запуск 50 форк-стрессеров
+stress-ng: info:  [100423] setting to a 10 secs run per stressor
+stress-ng: info:  [100423] dispatching hogs: 50 fork
+stress-ng: warn:  [100423] WARNING! using HPET clocksource (refer to /sys/devices/system/clocksource/clocksource0), this may impact benchmarking performance
+
+❯ cat /sys/fs/cgroup/lab1/pids.current
+20 # уперлись в максимум
+
+❯ cat /sys/fs/cgroup/lab1/pids.events
+max 184103 # это число попыток создать процесс, которые уперлись в максимум
+```
+
+![pids](screens/pids.png)
