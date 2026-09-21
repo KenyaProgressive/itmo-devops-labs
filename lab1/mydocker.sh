@@ -44,10 +44,13 @@ unshare --user --pid --mount --net --uts --ipc --fork --map-root-user --mount-pr
         ip link set veth-ns up
         ip link set lo up
 
-        # подменяем bash на uvicorn
-        exec .venv/bin/uvicorn api.main:app \
-            --host 0.0.0.0 \
-            --port 8000
+        # запускаем uvicorn уже без capabilities
+        exec capsh --drop=all --caps= --noamb -- -c "
+            exec /usr/bin/python3 seccomp_runner.py \
+                .venv/bin/uvicorn api.main:app \
+                --host 0.0.0.0 \
+                --port 8000
+        "
     ' &
 
 UNSHARE_PID=$!
