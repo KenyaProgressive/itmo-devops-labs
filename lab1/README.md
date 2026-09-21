@@ -441,7 +441,7 @@ bind
 
 Подводя итог, скрипт создает 6 NS, veth, cgroup v2, сбрасывает привилегии, оставляет необходимые syscalls, pid 1 - uvicorn, внутри uid 0, снаружи не рут.
 
-Теперь запустим все это через docker. Реализуем простенький [Dockerfile](Dockerfile). Образ будет на основе `python:3.12-slim`, устанавливаем рабочую директорию `/app`, копируем внутрь requirements.txt, устанавливаем зависимости, копируем наш `api`, и стартуем uvicorn.
+Теперь запустим все это через docker. Реализуем простенький [Dockerfile.simple](Dockerfile.simple). Образ будет на основе `python:3.12-slim`, устанавливаем рабочую директорию `/app`, копируем внутрь requirements.txt, устанавливаем зависимости, копируем наш `api`, и стартуем uvicorn.
 
 Собираем образ:
 ```bash
@@ -476,3 +476,174 @@ docker run --rm \
 | Volumes | нет | докер поддерживает тома |
 
 И главное отличие - ФС. mount NS изолирует таблицу монтирования, но процесс все же видит корневую ФС хоста. То есть скрипт не использует `pivot_root`, не реализует слои образа.
+
+---
+
+## Часть 6 - Образы
+
+Соберем сначала образ без multi-stage:
+
+```bash
+❯ docker build -f Dockerfile.simple -t lab1-api:simple .
+```
+
+Посмотрим размер нашего образа:
+
+```bash
+❯ docker image ls lab1-api
+IMAGE             ID             DISK USAGE   CONTENT SIZE   EXTRA
+lab1-api:simple   b07371df6cd9        167MB             0B        
+```
+
+Заодно глянем слои:
+
+```bash
+❯ docker history lab1-api:simple
+IMAGE          CREATED         CREATED BY                                      SIZE      COMMENT
+b07371df6cd9   7 minutes ago   CMD ["uvicorn" "api.main:app" "--host" "0.0.…   0B        buildkit.dockerfile.v0
+<missing>      7 minutes ago   COPY api ./api # buildkit                       1.81kB    buildkit.dockerfile.v0
+<missing>      7 minutes ago   RUN /bin/sh -c pip install --no-cache-dir -r…   47.7MB    buildkit.dockerfile.v0
+<missing>      7 minutes ago   COPY requirements.txt . # buildkit              25B       buildkit.dockerfile.v0
+<missing>      7 minutes ago   WORKDIR /app                                    0B        buildkit.dockerfile.v0
+<missing>      2 days ago      CMD ["python3"]                                 0B        buildkit.dockerfile.v0
+<missing>      2 days ago      RUN /bin/sh -c set -eux;  for src in idle3 p…   36B       buildkit.dockerfile.v0
+<missing>      2 days ago      RUN /bin/sh -c set -eux;   savedAptMark="$(a…   36.8MB    buildkit.dockerfile.v0
+<missing>      2 days ago      ENV PYTHON_SHA256=5c8462af5790baf43a321a1559…   0B        buildkit.dockerfile.v0
+<missing>      2 days ago      ENV PYTHON_VERSION=3.12.14                      0B        buildkit.dockerfile.v0
+<missing>      2 days ago      ENV GPG_KEY=7169605F62C751356D054A26A821E680…   0B        buildkit.dockerfile.v0
+<missing>      2 days ago      RUN /bin/sh -c set -eux;  apt-get update;  a…   3.81MB    buildkit.dockerfile.v0
+<missing>      2 days ago      ENV LANG=C.UTF-8                                0B        buildkit.dockerfile.v0
+<missing>      2 days ago      ENV PATH=/usr/local/bin:/usr/local/sbin:/usr…   0B        buildkit.dockerfile.v0
+<missing>      3 days ago      # debian.sh --arch 'amd64' out/ 'trixie' '@1…   78.8MB    debuerreotype 0.17
+```
+
+Теперь реализуем [multi-stage](Dockerfile). Логика будет такая. Сначала билдер соберет все необходимое для сборки (python + зависимости). Потом вторым этапом возьмем за основу python:3.12-slim и скопируем зависимости с первого шага в образ (билдер не попадает целиком в финальный образ).
+
+Собираем образ:
+
+```bash 
+❯ docker build -t lab1-api:multi .
+```
+
+Смотрим размер образа:
+
+```bash
+❯ docker image ls lab1-api
+IMAGE             ID             DISK USAGE   CONTENT SIZE   EXTRA
+lab1-api:multi    248d2e7ede89        170MB             0B        
+```
+
+И слои:
+
+```bash
+❯ docker history lab1-api:multi
+IMAGE          CREATED          CREATED BY                                      SIZE      COMMENT
+248d2e7ede89   17 seconds ago   CMD ["uvicorn" "api.main:app" "--host" "0.0.…   0B        buildkit.dockerfile.v0
+<missing>      17 seconds ago   COPY api ./api # buildkit                       1.81kB    buildkit.dockerfile.v0
+<missing>      17 seconds ago   ENV PATH=/opt/venv/bin:/usr/local/bin:/usr/l…   0B        buildkit.dockerfile.v0
+<missing>      17 seconds ago   COPY /opt/venv /opt/venv # buildkit             50.7MB    buildkit.dockerfile.v0
+<missing>      12 minutes ago   WORKDIR /app                                    0B        buildkit.dockerfile.v0
+<missing>      2 days ago       CMD ["python3"]                                 0B        buildkit.dockerfile.v0
+<missing>      2 days ago       RUN /bin/sh -c set -eux;  for src in idle3 p…   36B       buildkit.dockerfile.v0
+<missing>      2 days ago       RUN /bin/sh -c set -eux;   savedAptMark="$(a…   36.8MB    buildkit.dockerfile.v0
+<missing>      2 days ago       ENV PYTHON_SHA256=5c8462af5790baf43a321a1559…   0B        buildkit.dockerfile.v0
+<missing>      2 days ago       ENV PYTHON_VERSION=3.12.14                      0B        buildkit.dockerfile.v0
+<missing>      2 days ago       ENV GPG_KEY=7169605F62C751356D054A26A821E680…   0B        buildkit.dockerfile.v0
+<missing>      2 days ago       RUN /bin/sh -c set -eux;  apt-get update;  a…   3.81MB    buildkit.dockerfile.v0
+<missing>      2 days ago       ENV LANG=C.UTF-8                                0B        buildkit.dockerfile.v0
+<missing>      2 days ago       ENV PATH=/usr/local/bin:/usr/local/sbin:/usr…   0B        buildkit.dockerfile.v0
+<missing>      3 days ago       # debian.sh --arch 'amd64' out/ 'trixie' '@1…   78.8MB    debuerreotype 0.17
+```
+
+И тут получилось, что multi-stage получился больше по размеру на 3 мб. Тут получилось, что:
+
+```bash
+# Без multi-stage
+<missing>      7 minutes ago   RUN /bin/sh -c pip install --no-cache-dir -r…   47.7MB    buildkit.dockerfile.v0
+
+# С multi-stage
+<missing>      17 seconds ago   COPY /opt/venv /opt/venv # buildkit             50.7MB    buildkit.dockerfile.v0
+```
+
+В билдере создается виртуальное окружение, которое затем целиком копируется в рантайм образ. Но это не значит что multi-stage не работает. Работает, просто приложение не требует тяжелых инструментов для сборки (например не тянет какой-нибудь gcc/build-essential), из-за чего не виден эффект.
+
+Количество слоев ФС образов:
+- simple: 8 слоев
+- multi: 7 слоев (меньше потому что нет RUN)
+
+```bash
+❯ docker image inspect lab1-api:simple \
+  --format '{{len .RootFS.Layers}}'
+8
+
+❯ docker image inspect lab1-api:multi \
+  --format '{{len .RootFS.Layers}}'
+7
+```
+
+`docker history` показывает по 15 строк, потому что там также отображаются metadata инстркуции, которые не создают отдельные слои ФС.
+
+Теперь про переиспользование из кэша:
+
+![cache](screens/cache.png)
+
+То есть при повторной сборке (без измененией) докер переиспользовал билд кэш. Взяты были создание рабочего каталога, виртуального окружения, копирование requirements, установка зависимостей, копирование `/opt/venv` и копирование исходного кода api (все где пометки CACHED). Такая повторная сборка заняла 1.2 секунды (без кэша было 36.9 секунд).
+
+Теперь запустим контейнер без вольюма, запишем туда файлик, перезапустим контейнер - файлик пропадет:
+
+```bash
+❯ docker run -d \
+  --name lab1-cont \
+  lab1-api:multi
+3f25f7fe047ea9af5d0a9af4449d4b5fa71ea35645d0317478ae371f1738621c
+
+❯ docker exec lab1-cont \
+  sh -c 'echo "hello" > /tmp/test.txt'
+
+❯ docker exec lab1-cont cat /tmp/test.txt
+hello
+
+❯ docker rm -f lab1-cont
+lab1-cont
+
+❯ docker run -d \
+  --name lab1-cont \
+  lab1-api:multi
+dce14fce4ee2ef268cdbb3d5fea28f09bf51fe338348654b42afa9f41d534733
+
+❯ docker exec lab1-cont cat /tmp/test.txt
+cat: /tmp/test.txt: No such file or directory
+```
+
+А теперь подключим вольюм:
+
+```bash
+❯ docker volume create lab1-data
+
+❯ docker run -d \
+  --name lab1-cont \
+  -v lab1-data:/data \
+  lab1-api:multi
+lab1-data
+ef70b4e3b13c494c0a972017b4b821bcedf3c629c46b74c69b63aa7a045336ce
+
+❯ docker exec lab1-cont \
+  sh -c 'echo "hello" > /data/test.txt'
+
+❯ docker exec lab1-cont cat /data/test.txt
+hello
+
+❯ docker rm -f lab1-cont
+lab1-cont
+
+❯ docker run -d \
+  --name lab1-cont \
+  -v lab1-data:/data \
+  lab1-api:multi
+78dcf16c04e23698600ba646c2947cc28dd02e43a887255aa2afb2e99640d0f9
+
+❯ docker exec lab1-cont cat /data/test.txt
+hello # файл остался
+```
+
+Данные без вольюма пропадают, потому что они записываются в writable слой. При удалении контейнера этот слой удаляется вместе с ним, собственно поэтому созданные файлы внутри пропадают. Вольюм же отдельно храниться от цикла контейнера, поэтому данные остаются после удаления контейнера.
