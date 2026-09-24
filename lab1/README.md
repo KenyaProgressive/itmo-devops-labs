@@ -647,3 +647,79 @@ hello # файл остался
 ```
 
 Данные без вольюма пропадают, потому что они записываются в writable слой. При удалении контейнера этот слой удаляется вместе с ним, собственно поэтому созданные файлы внутри пропадают. Вольюм же отдельно храниться от цикла контейнера, поэтому данные остаются после удаления контейнера.
+
+---
+
+## Часть 7 -  gVisor
+
+Сначала установим gVisor и проверим рантайм docker (после установки gVisor должен появиться runsc (OCI runtime gVisor)):
+
+```bash
+❯ docker info | grep -i runtimes
+Runtimes: io.containerd.runc.v2 runc runsc
+```
+
+Теперь запустим наш образ через gVisor:
+
+```bash
+❯ docker run --rm \
+  --runtime=runsc \
+  --name lab1-gvisor \
+  --hostname l1-cont \
+  --memory=64m \
+  --memory-swap=128m \
+  --cpus=0.5 \
+  --pids-limit=20 \
+  --cap-drop=ALL \
+  -p 8000:8000 \
+  lab1-api:multi
+
+docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: creating container: cannot create sandbox: cannot read client sync file: waiting for sandbox to start: EOF
+```
+
+У нас появилась странная ошибка при старте контейнера. Методом перебора флагов выяснилось, что виновник - `--pids-limit=20` (увеличив этот лимит все заработало).
+
+Разобрав ошибку, можно понять, что проблема заключается в том, что при запуске gVisor sandbox, сам sandbox умирает во время старта. А runsc вместо сигнала готовности получил EOF.
+
+А теперь чуть глубже посмотрим, что конкретно случилось. Зарегаем отдельный рантайм (пусть будет `runsc-debug`) с включенным дебаг режимом:
+
+```bash
+❯ sudo mkdir -p /tmp/runsc-debug
+❯ sudo runsc install --runtime runsc-debug -- \
+  --debug \
+  --debug-log=/tmp/runsc-debug/
+```
+
+Запустим наш образ снова с `--pids-limit=20` но уже под дебаг runsc. Всё, запустили, логи собрали, теперь смотрим их. Грепнем по ключевым словам и посмотрим что нашлось:
+
+![logs](screens/logs.png)
+
+И вот мы видим `error executing umounter: fork/exec /proc/self/exe: resource temporarily unavailable`. Runsc попытался запустить процесс umounter, ну и соответственно уперся в наши лимиты в 20 процессов. Ну, повысим лимит до 50. Все заработало:
+
+```bash
+❯ docker run --rm \
+  --runtime=runsc \
+  --name lab1-gvisor \
+  --cap-drop=ALL \
+  --cpus=0.5 \
+  --pids-limit=50 \
+  --memory=64m \
+  --memory-swap=128m \
+  -p 8000:8000 \
+  lab1-api:multi
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+
+❯ curl http://127.0.0.1:8000/health
+ok
+```
+
+То есть в целом для рядового пользователя ничего снаружи то не изменилось. А что меняется принципиально?
+
+Если взять наш скрипт, то все системные вызовы обслуживаются напрямую хостовым ядром. Аналогично в Docker. А вот gVisor добавляет Sentry в юзерспейсе. И системные вызовы обрабатывюатся уже не хостовым ядром, а Sentry (режим systrap). Благодаря этому уменьшается поверхность атаки, которые связаны с уязвимостями хостового ядра.
+
+Ну и соответственно отсюда ответ на вопрос, что общего у обычного контейнера с хостом - хостовое ядро. Обычный контейнер не реализует собственное ядро. И как было написано выше, если контейнер вызывает системный вызов, а seccomp его пропускает, то возможная уязвимость части ядра может потенциально привести к выходу из контейнера. Но и полностью тоже запретить все вызовы нельзя, иначе приложение не сможет работать (отсюда же и появляется принцип минимальных привилегий для контейнера).
+
+## Часть 8 - Мониторинг
