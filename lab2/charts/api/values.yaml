@@ -1,0 +1,17 @@
+replicaCount: 1
+
+image:
+  repository: lab2-api
+  tag: "0.1.0"
+  # Never: образ уже загружен в kind через `kind load`, из registry не тянем
+  pullPolicy: Never
+
+service:
+  type: ClusterIP
+  port: 8000
+
+env:
+  OTEL_SERVICE_NAME: api
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.monitoring.svc:4318
+  # /load бьёт сам в себя по DNS сервиса внутри кластера
+  SELF_BASE_URL: http://api:8000
