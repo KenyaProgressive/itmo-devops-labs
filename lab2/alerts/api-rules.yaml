@@ -1,0 +1,48 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: api-alerts
+  namespace: monitoring
+  labels:
+    release: mon  
+spec:
+  groups:
+    - name: api
+      rules:
+        - alert: ApiHighErrorRate
+          expr: |
+            (
+              (sum(rate(http_requests_total{job="api", status=~"5.."}[2m])) or vector(0))
+              /
+              clamp_min(sum(rate(http_requests_total{job="api"}[2m])), 0.001)
+            ) > 0.05
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "API error rate > 5%"
+            description: "Доля 5xx у api выше 5% дольше 1 минуты."
+
+        - alert: ApiHighLatencyP95
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (le) (rate(http_request_duration_seconds_bucket{job="api"}[2m]))
+            ) > 1
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "API p95 latency > 1s"
+            description: "p95 времени ответа api выше 1s дольше 1 минуты."
+
+        - alert: ApiDown
+          # При replicas=0 цель исчезает из scrape — ряда up больше нет,
+          # поэтому up==0 не сработает. absent() ловит именно «метрики нет».
+          expr: absent(up{job="api"})
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "API is down"
+            description: "Цель api пропала из scrape Prometheus (нет up) дольше 1 минуты."
