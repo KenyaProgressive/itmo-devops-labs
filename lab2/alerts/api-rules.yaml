@@ -37,12 +37,11 @@ spec:
             description: "p95 времени ответа api выше 1s дольше 1 минуты."
 
         - alert: ApiDown
-          # При replicas=0 цель исчезает из scrape — ряда up больше нет,
-          # поэтому up==0 не сработает. absent() ловит именно «метрики нет».
-          expr: absent(up{job="api"})
+          # absent — цель пропала из scrape (подов нет), up==0 — под есть, но /metrics не отвечает
+          expr: up{job="api"} == 0 or absent(up{job="api"})
           for: 1m
           labels:
             severity: critical
           annotations:
             summary: "API is down"
-            description: "Цель api пропала из scrape Prometheus (нет up) дольше 1 минуты."
+            description: "Prometheus не может скрейпить api или цель пропала дольше 1 минуты."
