@@ -13,6 +13,7 @@ from config import HEALTH_FAIL, LOG_FORMAT
 from db.session import DBMaster
 from dependencies import OrderServiceDep
 from dto.orders import OrderCreateDTO, OrdersListFilterDTO
+from prometheus_fastapi_instrumentator import Instrumentator
 
 logger.remove()
 
@@ -31,6 +32,7 @@ async def lifespan(app: FastAPI):
 
 
 app: FastAPI = FastAPI(lifespan=lifespan)
+Instrumentator().instrument(app).expose(app)
 
 
 @app.get("/health")

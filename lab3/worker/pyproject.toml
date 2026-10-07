@@ -10,6 +10,7 @@ dependencies = [
     "faker>=40.40.0",
     "faker-commerce>=1.0.4",
     "loguru>=0.7.3",
+    "prometheus-client>=0.26.0",
     "python-dotenv>=1.2.4",
 ]
 

@@ -1,6 +1,6 @@
 api:
   replicas: 6
-  image: api:v3
+  image: api:v4
   port: 8000
   resources:
     requests:
@@ -12,7 +12,7 @@ api:
 
 worker:
   replicas: 4
-  image: worker:v1
+  image: worker:v2
   port: 8081
   resources:
     requests:

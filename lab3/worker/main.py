@@ -2,7 +2,8 @@ import asyncio
 import sys
 from random import randint
 from worker_types import OrderCreateTuple, ProductCreateTuple
-
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from const import ORDERS_PROCESSED, WORKER_ERRORS
 import asyncpg
 from loguru import logger
 from aiohttp import web
@@ -35,9 +36,16 @@ orders_data: list[OrderCreateTuple] = [
 async def health_handler(request: web.Request) -> web.Response:
     return web.Response(text="ok")
 
+async def metrics_handler(request: web.Request) -> web.Response:
+    return web.Response(
+        body=generate_latest(),
+        headers={"Content-Type": CONTENT_TYPE_LATEST},
+    )
+
 async def run_health_server() -> None:
     app = web.Application()
     app.router.add_get("/health", health_handler)
+    app.router.add_get("/metrics", metrics_handler)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -110,6 +118,7 @@ async def processing_orders():
                     logger.info(f"Orders {processed_ids} marked as PROCESSED")
 
                     counter += len(processed_ids)
+                    ORDERS_PROCESSED.inc(len(processed_ids))
                 
                 if counter > MAX_RECORDS:
                     await conn.execute("TRUNCATE TABLE orders")
@@ -119,6 +128,7 @@ async def processing_orders():
 
         except Exception:
             logger.exception("Worker loop error")
+            WORKER_ERRORS.inc()
             await asyncio.sleep(5)
 
 

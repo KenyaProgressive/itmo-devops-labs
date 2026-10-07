@@ -1,0 +1,33 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: shop-alerts
+  labels:
+    release: mon
+spec:
+  groups:
+    - name: shop.rules
+      rules:
+        - alert: ApiDown
+          expr: absent(up{job="api"}) or up{job="api"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "api недоступен"
+
+        - alert: WorkerDown
+          expr: absent(up{job="worker"}) or up{job="worker"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "worker недоступен"
+
+        - alert: ApiManyRestarts
+          expr: increase(kube_pod_container_status_restarts_total{namespace="default",container="api"}[5m]) > 3
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "api перезапускается слишком часто"

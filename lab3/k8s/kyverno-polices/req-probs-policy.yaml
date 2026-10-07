@@ -19,6 +19,7 @@ spec:
                 - kube-system
                 - kyverno
                 - local-path-storage
+                - monitoring
           - resources:
               selector:
                 matchLabels:
