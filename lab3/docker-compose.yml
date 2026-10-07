@@ -1,0 +1,61 @@
+services:
+  api:
+    platform: linux/arm64
+    image: "api:v1"
+    build: 
+      context: ./api
+      dockerfile: Dockerfile
+    env_file:
+      - ./api/.env
+    ports:
+      - "8000:8000"
+    networks:
+      - net1
+    depends_on:
+      postgres:
+        condition: service_healthy 
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 20s
+      retries: 3
+      start_period: 3s
+  worker:
+    platform: linux/arm64
+    image: "worker:v1"
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    env_file:
+      - ./worker/.env
+    networks:
+      - net1
+    depends_on:
+      postgres:
+        condition: service_healthy 
+      api:
+        condition: service_healthy 
+
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    container_name: postgres_db
+    ports:
+      - "5433:5432"
+    networks:
+      - net1
+    volumes:
+      - labm_pg_data:/var/lib/postgresql
+    env_file:
+      - "./worker/.env"
+    healthcheck:                       
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    
+networks:
+  net1:
+
+volumes:
+  labm_pg_data:

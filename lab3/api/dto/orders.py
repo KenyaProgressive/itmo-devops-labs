@@ -10,9 +10,9 @@ class OrderCreateDTO(DTO):
     phone_number: Annotated[
         str,
         Field(
-            max_length=12,
+            max_length=20,
             title="Телефонный номер заказчика",
-            description="12 символов -- + и 11 цифр",
+            description="20 символов -- + и 11 цифр, могут быть скобки и т.п.",
         ),
     ]
     customer_name: Annotated[str, Field(max_length=150, title="Имя заказчика")]
@@ -41,9 +41,9 @@ class OrderDTO(DTO):
     phone_number: Annotated[
         str,
         Field(
-            max_length=12,
+            max_length=20,
             title="Телефонный номер заказчика",
-            description="12 символов -- + и 11 цифр",
+            description="20 символов -- + и 11 цифр, могут быть скобки и т.п.",
         ),
     ]
     product_name: Annotated[

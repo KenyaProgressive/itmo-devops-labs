@@ -1,0 +1,41 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: req-probs
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: req-probs
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kyverno
+                - local-path-storage
+          - resources:
+              selector:
+                matchLabels:
+                  cnpg.io/cluster: postgres
+
+          - resources:
+              selector:
+                matchLabels:
+                  app: healthcheck-attack
+      validate:
+        message: "Pods must have probes options"
+        pattern:
+          spec:
+            containers:
+              - livenessProbe:
+                  httpGet:
+                    path: "?*"
+                readinessProbe:
+                  httpGet:
+                    path: "?*"

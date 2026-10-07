@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  labels:
+    app: worker
+    environment: dev
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+        environment: dev
+    spec:
+      containers:
+        - name: worker
+          image: {{ .Values.worker.image }}
+          ports:
+            - containerPort: {{ .Values.worker.port }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.worker.port }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.worker.port }}
+          securityContext:
+            runAsNonRoot: true
+            privileged: false

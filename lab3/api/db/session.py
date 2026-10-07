@@ -1,6 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated, ClassVar
+from typing import ClassVar
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import (AsyncEngine, AsyncSession,
@@ -25,6 +25,7 @@ class DBMaster:
         async with self._session_maker() as session:
             yield session
 
+    @classmethod
     async def create_tables(self) -> None:
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

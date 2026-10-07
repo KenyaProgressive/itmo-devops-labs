@@ -1,4 +1,5 @@
 import sys
+import uvicorn
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from uuid import UUID
@@ -26,6 +27,7 @@ logger.add(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await DBMaster.create_tables()
+    yield
 
 
 app: FastAPI = FastAPI(lifespan=lifespan)
@@ -72,3 +74,6 @@ async def list_orders(
             status_code=HTTPStatus.BAD_REQUEST,
             detail="Что-то пошло не так. Попробуйте ещё раз.",
         )
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)

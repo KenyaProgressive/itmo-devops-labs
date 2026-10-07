@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Orders
+from db.models import Orders, Products
 from repository.data_types import OrderCreate, OrdersData
 
 
@@ -34,7 +34,7 @@ class OrdersRepository:
         sku: str | None = None,
         quantity: int | None = None,
     ) -> list[OrdersData]:
-        query = select(Orders)
+        query = select(Orders.id, Orders.phone_number, Products.name, Orders.quantity, Orders.sku).join(Products, Orders.sku == Products.sku)
 
         if order_id is not None:
             query = query.where(Orders.id == order_id)

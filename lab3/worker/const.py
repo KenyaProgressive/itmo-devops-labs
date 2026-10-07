@@ -13,5 +13,6 @@ POSTGRES_URL = f"{os.getenv("POSTGRES_DRIVER")}://{os.getenv("POSTGRES_USER")}:{
 FAKER = Faker(locale="ru_RU")
 FAKER.add_provider(faker_commerce.Provider)
 
-SKUS = [randint(1_000_000, 9_999_999) for _ in (100)]
-PRODUCTS_NAMES = [FAKER.ecommerce_name() for _ in (100)]
+SKUS = [randint(1_000_000, 9_999_999) for _ in range(100)]
+PRODUCTS_NAMES = [FAKER.ecommerce_name() for _ in range(100)]
+MAX_RECORDS = 10000

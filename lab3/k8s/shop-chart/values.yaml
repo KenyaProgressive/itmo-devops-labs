@@ -1,0 +1,23 @@
+api:
+  replicas: 6
+  image: api:v3
+  port: 8000
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "3000m"
+      memory: "150Mi"
+
+worker:
+  replicas: 4
+  image: worker:v1
+  port: 8081
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "3000m"
+      memory: "150Mi"

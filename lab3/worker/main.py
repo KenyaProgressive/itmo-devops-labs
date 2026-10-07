@@ -1,12 +1,13 @@
 import asyncio
 import sys
 from random import randint
-from types import OrderCreateTuple, ProductCreateTuple
+from worker_types import OrderCreateTuple, ProductCreateTuple
 
 import asyncpg
 from loguru import logger
+from aiohttp import web
 
-from const import FAKER, POSTGRES_URL, PRODUCTS_NAMES, SKUS
+from const import FAKER, POSTGRES_URL, PRODUCTS_NAMES, SKUS, MAX_RECORDS
 
 # Настройка логирования
 logger.remove()
@@ -18,18 +19,35 @@ logger.add(
 )
 
 products_data: list[ProductCreateTuple] = [
-    ProductCreateTuple(name=PRODUCTS_NAMES[i], sku=SKUS[i]) for i in range(100)
+    ProductCreateTuple(name=PRODUCTS_NAMES[i], sku=str(SKUS[i])) for i in range(100)
 ]
 
 orders_data: list[OrderCreateTuple] = [
     OrderCreateTuple(
         phone_number=FAKER.phone_number(),
         customer_name=FAKER.name(),
-        sku=sku_num,
+        sku=str(sku_num),
         quantity=randint(1, 100),
     )
     for sku_num in SKUS
 ]
+
+async def health_handler(request: web.Request) -> web.Response:
+    return web.Response(text="ok")
+
+async def run_health_server() -> None:
+    app = web.Application()
+    app.router.add_get("/health", health_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="0.0.0.0", port=8081)
+    await site.start()
+
+    logger.info(f"Health server listening on :{8081}")
+
+    await asyncio.Event().wait()
+
 
 
 async def init_test_data(pool):
@@ -53,6 +71,7 @@ async def init_test_data(pool):
 async def processing_orders():
 
     logger.info("Worker started.")
+    counter: int = 0
 
     pool = await asyncpg.create_pool(dsn=POSTGRES_URL, min_size=1, max_size=10)
 
@@ -71,7 +90,7 @@ async def processing_orders():
                     """)
 
                 if not rows:
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(10)
                     continue
 
                 processed_ids = []
@@ -79,7 +98,7 @@ async def processing_orders():
                     logger.info(
                         f"Processing order #{row['id']} ({row['name']} x {row['quantity']})..."
                     )
-                    await asyncio.sleep(1)  # Имитация работы
+                    await asyncio.sleep(5)  # Имитация работы
                     processed_ids.append(row["id"])
 
                 if processed_ids:
@@ -90,10 +109,25 @@ async def processing_orders():
                     )
                     logger.info(f"Orders {processed_ids} marked as PROCESSED")
 
+                    counter += len(processed_ids)
+                
+                if counter > MAX_RECORDS:
+                    await conn.execute("TRUNCATE TABLE orders")
+                    await conn.execute("TRUNCATE TABLE products")
+                    counter = 0
+                    
+
         except Exception:
             logger.exception("Worker loop error")
             await asyncio.sleep(5)
 
 
+async def main() -> None:
+    await asyncio.gather(
+        processing_orders(),
+        run_health_server(),
+    )
+
+
 if __name__ == "__main__":
-    asyncio.run(processing_orders())
+    asyncio.run(main())

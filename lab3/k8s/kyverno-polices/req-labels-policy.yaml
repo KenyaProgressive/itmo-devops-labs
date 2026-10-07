@@ -1,0 +1,38 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: req-labels
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: req-labels
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kyverno
+                - local-path-storage
+                - cnpg-system
+          - resources:
+              selector:
+                matchLabels:
+                  cnpg.io/cluster: postgres
+                  
+          - resources:
+              selector:
+                matchLabels:
+                  app: healthcheck-attack
+      validate:
+        message: "Pods must have several labels"
+        pattern:
+          metadata:
+            labels:
+              app: "?*"
+              environment: "?*"

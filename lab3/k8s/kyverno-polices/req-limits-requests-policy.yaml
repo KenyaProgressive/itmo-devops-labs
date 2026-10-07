@@ -1,0 +1,46 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: req-limits-requests
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: req-limits-requests
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kyverno
+                - local-path-storage
+                - cnpg-system
+          - resources:
+              selector:
+                matchLabels:
+                  cnpg.io/cluster: postgres
+      validate:
+        message: "Every Pod must have specific requests and limits"
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    memory: "?*"
+                    cpu: "?*"
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"
+            =(initContainers):
+              - resources:
+                  requests:
+                    memory: "?*"
+                    cpu: "?*"
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"

@@ -1,0 +1,42 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: req-user-no-root
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: req-user-no-root
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kyverno
+                - local-path-storage
+                - cnpg-system
+                
+          - resources:
+              selector:
+                matchLabels:
+                  cnpg.io/cluster: postgres
+                  
+          - resources:
+              selector:
+                matchLabels:
+                  app: healthcheck-attack                  
+      validate:
+        message: "Pods must not run as root"
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  runAsNonRoot: "true"
+            =(initContainers):
+              - securityContext:
+                  runAsNonRoot: "true"
