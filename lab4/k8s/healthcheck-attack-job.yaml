@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: healthcheck-attack
+spec:
+  template:                        
+    metadata:
+      labels:
+        app: healthcheck-attack
+        environment: dev
+    spec:
+      restartPolicy: Never       
+      containers:
+        - name: healthcheck-attack
+          image: curlimages/curl
+          command: ["sh", "-c"]
+          args:
+            - |
+              for i in $(seq 1 600); do
+                curl -s -o /dev/null -w "%{http_code}\n" http://api:8000/health
+                sleep 0.5
+              done
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "3000m"
+              memory: "50Mi"

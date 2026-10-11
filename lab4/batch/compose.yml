@@ -1,0 +1,9 @@
+services:
+  batch:
+    platform: linux/arm64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: batch
+    env_file:
+      - .env
