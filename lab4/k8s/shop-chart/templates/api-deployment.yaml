@@ -16,9 +16,52 @@ spec:
         app: api
         environment: dev
     spec:
+      {{- if eq .Values.api.placement.mode "topologySpreadConstraints" }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.api.placement.maxSkew }}
+          topologyKey: {{ .Values.api.placement.topologyKey | quote }}
+          nodeTaintsPolicy: Honor
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: api
+
+      {{- else if eq .Values.api.placement.mode "podAntiAffinity" }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: api
+              topologyKey: {{ .Values.api.placement.topologyKey | quote }}
+      {{- end }}
       containers:
         - name: api
           image: {{ .Values.api.image }}
+          env:
+            - name: POSTGRES_DRIVER
+              value: "postgresql+asyncpg"
+
+            - name: POSTGRES_HOST
+              value: {{ .Values.postgres.host | quote }}
+
+            - name: POSTGRES_PORT
+              value: {{ .Values.postgres.port | quote }}
+
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.secretName }}
+                  key: username
+
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.secretName }}
+                  key: password
           ports:
             - containerPort: {{ .Values.api.port }}
           resources:

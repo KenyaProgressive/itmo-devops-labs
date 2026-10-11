@@ -2,6 +2,10 @@ api:
   replicas: 6
   image: api:v4
   port: 8000
+  placement:
+    mode: topologySpreadConstraints
+    topologyKey: kubernetes.io/hostname
+    maxSkew: 1
   resources:
     requests:
       cpu: "100m"
@@ -9,6 +13,12 @@ api:
     limits:
       cpu: "3000m"
       memory: "150Mi"
+
+postgres:
+  host: postgres-rw
+  port: 5432
+  database: lab3
+  secretName: postgres-app-secret
 
 worker:
   replicas: 4
@@ -21,3 +31,24 @@ worker:
     limits:
       cpu: "3000m"
       memory: "150Mi"
+
+
+batch:
+  replicas: 1
+  image: batch:v1
+  port: 8082
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+  config:
+    memMb: 256
+    cpuWorkers: 1
+    growStepMb: 16
+    growIntervalS: 2
+    logIntervalS: 5

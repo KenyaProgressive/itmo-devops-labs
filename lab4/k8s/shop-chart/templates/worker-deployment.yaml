@@ -19,6 +19,30 @@ spec:
       containers:
         - name: worker
           image: {{ .Values.worker.image }}
+          env:
+            - name: POSTGRES_DRIVER
+              value: "postgresql"
+
+            - name: POSTGRES_HOST
+              value: {{ .Values.postgres.host | quote }}
+
+            - name: POSTGRES_PORT
+              value: {{ .Values.postgres.port | quote }}
+
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.secretName }}
+                  key: username
+
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.secretName }}
+                  key: password
           ports:
             - containerPort: {{ .Values.worker.port }}
           resources:

@@ -2,7 +2,25 @@ import time, socket
 from multiprocessing import Process
 from const import CPU_WORKERS, GROW_STEP_MB, MEM_MB, GROW_INTERVAL_S, LOG_INTERVAL_S
 
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
+
 HOST = socket.gethostname()
+
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != "/health":
+            self.send_error(404)
+            return
+
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, format, *args):
+        pass
+
 
 def cpu_hog():
     x = 1
@@ -10,6 +28,13 @@ def cpu_hog():
         x = (x * 1103515245 + 12345) & 0x7FFFFFFF
 
 def main():
+    server = ThreadingHTTPServer(("0.0.0.0", 8082), HealthHandler)
+
+    Thread(
+        target=server.serve_forever,
+        daemon=True,
+    ).start()
+
 
     for _ in range(CPU_WORKERS):
         Process(target=cpu_hog, daemon=True).start()
