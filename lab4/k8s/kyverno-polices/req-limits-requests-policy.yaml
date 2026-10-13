@@ -26,7 +26,7 @@ spec:
                 matchLabels:
                   cnpg.io/cluster: postgres
       validate:
-        message: "Every Pod must have specific requests and limits"
+        message: "Every Pod must have CPU/memory requests and memory limit"
         pattern:
           spec:
             containers:
@@ -36,7 +36,6 @@ spec:
                     cpu: "?*"
                   limits:
                     memory: "?*"
-                    cpu: "?*"
             =(initContainers):
               - resources:
                   requests:
@@ -44,4 +43,3 @@ spec:
                     cpu: "?*"
                   limits:
                     memory: "?*"
-                    cpu: "?*"

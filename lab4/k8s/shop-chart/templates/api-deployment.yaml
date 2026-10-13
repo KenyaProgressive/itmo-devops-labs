@@ -16,6 +16,7 @@ spec:
         app: api
         environment: dev
     spec:
+      priorityClassName: {{ .Values.api.priorityClassName }}
       {{- if eq .Values.api.placement.mode "topologySpreadConstraints" }}
       topologySpreadConstraints:
         - maxSkew: {{ .Values.api.placement.maxSkew }}

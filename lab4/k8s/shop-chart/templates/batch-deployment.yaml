@@ -17,6 +17,7 @@ spec:
         app: batch
         environment: dev
     spec:
+      priorityClassName: {{ .Values.batch.priorityClassName }}
       containers:
         - name: batch
           image: {{ .Values.batch.image }}
