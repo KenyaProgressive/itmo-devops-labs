@@ -1,0 +1,15 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          taints:
+            - key: c-plane
+              value: reserved
+              effect: NoSchedule
+
+  - role: worker
+  - role: worker

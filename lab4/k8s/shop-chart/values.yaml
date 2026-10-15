@@ -1,0 +1,82 @@
+priorityClasses:
+  high:
+    name: shop-crit
+    value: 1000000
+
+  low:
+    name: shop-batch
+    value: -10000
+
+api:
+  replicas: 6
+  image: api:v5
+  port: 8000
+
+  service:
+    type: NodePort
+    nodePort: 30082
+
+  priorityClassName: shop-crit
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+
+  placement:
+    mode: topologySpreadConstraints
+    topologyKey: kubernetes.io/hostname
+    maxSkew: 1
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "100Mi"
+    limits:
+      memory: "100Mi"
+      cpu: "500m"
+
+postgres:
+  host: postgres-rw
+  port: 5432
+  database: lab3
+  secretName: postgres-app-secret
+  priorityClassName: shop-crit
+  pdb:
+    enabled: true
+  resources:
+    requests:
+      cpu: "400m"
+      memory: "145Mi"
+    limits:
+      memory: "145Mi"
+      cpu: "400m"
+
+worker:
+  replicas: 4
+  image: worker:v2
+  port: 8081
+  resources:
+    requests:
+      cpu: "10m"
+      memory: "100Mi"
+    limits:
+      memory: "100Mi"
+
+
+batch:
+  replicas: 1
+  image: batch:v1
+  port: 8082
+  priorityClassName: shop-batch
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "100m"
+    limits:
+      cpu: "200m"
+      memory: "1Gi"
+
+  config:
+    memMb: 768
+    cpuWorkers: 1
+    growStepMb: 64
+    growIntervalS: 1
+    logIntervalS: 5

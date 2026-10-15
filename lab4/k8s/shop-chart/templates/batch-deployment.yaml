@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: batch
+  labels:
+    app: batch
+    environment: dev
+
+spec:
+  replicas: {{ .Values.batch.replicas }}
+  selector:
+    matchLabels:
+      app: batch
+  template:
+    metadata:
+      labels:
+        app: batch
+        environment: dev
+    spec:
+      priorityClassName: {{ .Values.batch.priorityClassName }}
+      containers:
+        - name: batch
+          image: {{ .Values.batch.image }}
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - containerPort: {{ .Values.batch.port }}
+
+          env:
+            - name: MEM_MB
+              value: {{ .Values.batch.config.memMb | quote }}
+
+            - name: CPU_WORKERS
+              value: {{ .Values.batch.config.cpuWorkers | quote }}
+
+            - name: GROW_STEP_MB
+              value: {{ .Values.batch.config.growStepMb | quote }}
+
+            - name: GROW_INTERVAL_S
+              value: {{ .Values.batch.config.growIntervalS | quote }}
+
+            - name: LOG_INTERVAL_S
+              value: {{ .Values.batch.config.logIntervalS | quote }}
+
+          resources:
+            {{- toYaml .Values.batch.resources | nindent 12 }}
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.batch.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.batch.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            privileged: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
