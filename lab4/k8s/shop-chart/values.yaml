@@ -75,7 +75,7 @@ batch:
       memory: "1Gi"
 
   config:
-    memMb: 768
+    memMb: 700
     cpuWorkers: 1
     growStepMb: 64
     growIntervalS: 1

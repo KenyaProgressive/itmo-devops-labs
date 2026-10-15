@@ -154,13 +154,14 @@ shop    default         1               2026-10-12 00:20:13.961561271 +0300 MSK 
 Смотрим распределение наших реплик апи по нодам:
 
 ```bash
-➜  lab4 git:(feat/lr4) ✗ kubectl get pods -l app=api -o wide
-NAME                   READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
-api-8545dfd96f-6n99x   1/1     Running   0          50s   10.244.2.36   lab4-worker    <none>           <none>
-api-8545dfd96f-8mqm2   1/1     Running   0          62s   10.244.1.26   lab4-worker2   <none>           <none>
-api-8545dfd96f-bb8hl   1/1     Running   0          62s   10.244.2.34   lab4-worker    <none>           <none>
-api-8545dfd96f-sss2q   1/1     Running   0          51s   10.244.1.29   lab4-worker2   <none>           <none>
-api-8545dfd96f-x4pqn   1/1     Running   0          62s   10.244.1.27   lab4-worker2   <none>           <none>
+➜  lab4 git:(main) ✗ kubectl get pods -l app=api -o wide -w
+NAME                   READY   STATUS    RESTARTS   AGE    IP            NODE           NOMINATED NODE   READINESS GATES
+api-689b8f9db4-6lpw5   1/1     Running   0          119s   10.244.2.70   lab4-worker    <none>           <none>
+api-689b8f9db4-6zb6h   1/1     Running   0          2m7s   10.244.2.69   lab4-worker    <none>           <none>
+api-689b8f9db4-6zdd9   1/1     Running   0          110s   10.244.2.71   lab4-worker    <none>           <none>
+api-689b8f9db4-7phtm   1/1     Running   0          114s   10.244.1.68   lab4-worker2   <none>           <none>
+api-689b8f9db4-xbg6p   1/1     Running   0          113s   10.244.1.69   lab4-worker2   <none>           <none>
+api-689b8f9db4-xfxl4   1/1     Running   0          2m6s   10.244.1.67   lab4-worker2   <none>           <none>
 ```
 
 Видим, что реплики распределились 3 на 3 на двух нодах. Наш `batch` тоже работает:
@@ -829,27 +830,15 @@ spec:
 
 Мы также сейчас запустим hey на минут 5, и параллельно этому будем создавать нагрузку через batch, как в предудщей части.
 
-График, что запросы стабильно идут на наш апи:
+График, что запросы стабильно идут на наш апи, график, что 4хх и 5хх у нас нулевые, график, что p95 < 300 мс, ну и деградация batch (5 реплик всего запущено на нагрузку кластера):
 
-![reqs](img/reqs.png)
-
-График, что 4хх и 5хх у нас нулевые:
-
-![errors](img/rate_errors.png)
-
-График, что p95 < 300 мс:
-
-![sla](img/sla.png)
-
-Ну и деградация batch (5 реплик всего запущено на нагрузку кластера):
-
-![batch](img/batch_status.png)
+![graf](img/graf.png)
 
 Отчет hey:
 
 ```bash
-➜  lab4 git:(feat/lr4) ✗ ~/go/bin/hey \
-  -z 5m \ 
+➜  lab4 git:(main) ✗ ~/go/bin/hey \                    
+  -z 5m \
   -c 5 \
   -q 1 \
   -m POST \
@@ -863,10 +852,10 @@ spec:
   http://172.20.0.3:30082/order
 
 Summary:
-  Total:        300.0096 secs
-  Slowest:      0.0636 secs
-  Fastest:      0.0040 secs
-  Average:      0.0064 secs
+  Total:        300.0125 secs
+  Slowest:      0.3472 secs
+  Fastest:      0.0039 secs
+  Average:      0.0082 secs
   Requests/sec: 4.9998
   
   Total data:   76500 bytes
@@ -874,33 +863,33 @@ Summary:
 
 Response time histogram:
   0.004 [1]     |
-  0.010 [1438]  |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
-  0.016 [56]    |■■
-  0.022 [0]     |
-  0.028 [2]     |
-  0.034 [2]     |
-  0.040 [0]     |
-  0.046 [0]     |
-  0.052 [0]     |
-  0.058 [0]     |
-  0.064 [1]     |
+  0.038 [1494]  |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  0.073 [1]     |
+  0.107 [1]     |
+  0.141 [0]     |
+  0.176 [0]     |
+  0.210 [0]     |
+  0.244 [1]     |
+  0.279 [0]     |
+  0.313 [0]     |
+  0.347 [2]     |
 
 
 Latency distribution:
-  10%% in 0.0047 secs
-  25%% in 0.0052 secs
-  50%% in 0.0059 secs
-  75%% in 0.0071 secs
-  90%% in 0.0083 secs
-  95%% in 0.0096 secs
-  99%% in 0.0122 secs
+  10%% in 0.0048 secs
+  25%% in 0.0054 secs
+  50%% in 0.0076 secs
+  75%% in 0.0090 secs
+  90%% in 0.0102 secs
+  95%% in 0.0113 secs
+  99%% in 0.0131 secs
 
 Details (average, fastest, slowest):
-  DNS+dialup:   0.0000 secs, 0.0000 secs, 0.0013 secs
+  DNS+dialup:   0.0000 secs, 0.0000 secs, 0.0006 secs
   DNS-lookup:   0.0000 secs, 0.0000 secs, 0.0000 secs
-  req write:    0.0000 secs, 0.0000 secs, 0.0027 secs
-  resp wait:    0.0062 secs, 0.0038 secs, 0.0609 secs
-  resp read:    0.0001 secs, 0.0000 secs, 0.0010 secs
+  req write:    0.0000 secs, 0.0000 secs, 0.0032 secs
+  resp wait:    0.0080 secs, 0.0037 secs, 0.3455 secs
+  resp read:    0.0001 secs, 0.0000 secs, 0.0004 secs
 
 Status code distribution:
   [201] 1500 responses
