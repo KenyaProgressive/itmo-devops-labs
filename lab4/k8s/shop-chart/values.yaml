@@ -12,6 +12,10 @@ api:
   image: api:v5
   port: 8000
 
+  service:
+    type: NodePort
+    nodePort: 30082
+
   priorityClassName: shop-crit
   pdb:
     enabled: true
@@ -23,11 +27,11 @@ api:
     maxSkew: 1
   resources:
     requests:
-      cpu: "100m"
+      cpu: "500m"
       memory: "100Mi"
     limits:
       memory: "100Mi"
-      cpu: "100m"
+      cpu: "500m"
 
 postgres:
   host: postgres-rw
@@ -39,11 +43,11 @@ postgres:
     enabled: true
   resources:
     requests:
-      cpu: "250m"
+      cpu: "400m"
       memory: "145Mi"
     limits:
       memory: "145Mi"
-      cpu: "250m"
+      cpu: "400m"
 
 worker:
   replicas: 4
@@ -64,15 +68,15 @@ batch:
   priorityClassName: shop-batch
   resources:
     requests:
-      cpu: "100m"
-      memory: "128Mi"
+      cpu: "200m"
+      memory: "100m"
     limits:
-      cpu: "250m"
-      memory: "512Mi"
+      cpu: "200m"
+      memory: "1Gi"
 
   config:
-    memMb: 256
+    memMb: 768
     cpuWorkers: 1
-    growStepMb: 16
-    growIntervalS: 2
+    growStepMb: 64
+    growIntervalS: 1
     logIntervalS: 5

@@ -6,28 +6,66 @@ metadata:
     release: mon
 spec:
   groups:
-    - name: shop.rules
+    - name: shop.sla
       rules:
-        - alert: ApiDown
-          expr: absent(up{job="api"}) or up{job="api"} == 0
+        - alert: ApiHighLatencyP95
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (le) (
+                rate(http_request_duration_seconds_bucket{
+                  handler="/order",
+                  method="POST"
+                }[2m])
+              )
+            ) > 0.3
           for: 1m
           labels:
             severity: critical
+            component: api
           annotations:
-            summary: "api недоступен"
+            summary: "SLA violated: API p95 > 300 ms"
+            description: "95-й перцентиль POST /order выше 300 мс более 1 минуты."
 
-        - alert: WorkerDown
-          expr: absent(up{job="worker"}) or up{job="worker"} == 0
+        - alert: ApiHighErrorRate
+          expr: |
+            (
+              (
+                sum(rate(http_requests_total{
+                  handler="/order",
+                  method="POST",
+                  status=~"[45].."
+                }[2m])) or vector(0)
+              )
+              /
+              clamp_min(
+                sum(rate(http_requests_total{
+                  handler="/order",
+                  method="POST"
+                }[2m])),
+                0.001
+              )
+            ) > 0.01
           for: 1m
           labels:
             severity: critical
+            component: api
           annotations:
-            summary: "worker недоступен"
+            summary: "SLA violated: API HTTP errors > 1%"
+            description: "Доля HTTP 4xx/5xx для POST /order превышает 1% более 1 минуты."
 
-        - alert: ApiManyRestarts
-          expr: increase(kube_pod_container_status_restarts_total{namespace="default",container="api"}[5m]) > 3
-          for: 2m
+        - alert: BatchEvicted
+          expr: |
+            max by (namespace) (
+              max_over_time(kube_pod_status_reason{
+                namespace="{{ .Release.Namespace }}",
+                pod=~"batch-.*",
+                reason="Evicted"
+              }[5m])
+            ) > 0
           labels:
             severity: warning
+            component: batch
           annotations:
-            summary: "api перезапускается слишком часто"
+            summary: "Batch pod was Evicted"
+            description: "В последние 5 минут kubelet вытеснил batch из-за давления на ресурсы."

@@ -619,46 +619,47 @@ batch-776d97ffdc-d82r6   1/1     Running   0          92s   10.244.2.50   lab4-w
 batch-776d97ffdc-t8s6k   0/1     Pending   0          80s   <none>        <none>         <none>           <none>
 ```
 
-В describe одного из подов:
-
-```bash
-Events:
-  Type     Reason            Age                  From               Message
-  ----     ------            ----                 ----               -------
-  Warning  FailedScheduling  2m14s                default-scheduler  0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 Insufficient cpu. preemption: 0/3 nodes are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found for incoming pod.
-  Warning  FailedScheduling  114s (x2 over 115s)  default-scheduler  0/3 nodes are available: 1 node(s) had untolerated taint(s), 2 Insufficient cpu. preemption: 0/3 nodes are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found for incoming pod.
-```
-
 Теперь создаем больше реплик высокоприоритетных апи (9), который вытеснит batch (api тоже пока увеличим ресурсы цпу до 1000m):
 
 ```bash
 (.venv) ➜  lab4 git:(feat/lr4) ✗ kubectl get pods               
-NAME                      READY   STATUS    RESTARTS      AGE
-api-798c48c576-5jl4s      1/1     Running   0             7m28s
-api-798c48c576-6t5c5      1/1     Running   0             7m39s
-api-798c48c576-7jhlv      1/1     Running   0             7m17s
-api-798c48c576-frwx5      1/1     Running   0             104s
-api-798c48c576-rsg4b      1/1     Running   0             7m39s
-api-798c48c576-s22gq      1/1     Running   0             104s
-api-798c48c576-t47td      1/1     Running   0             7m28s
-api-798c48c576-wvt84      1/1     Running   0             104s
-api-798c48c576-xvfrv      1/1     Running   0             7m39s
-batch-776d97ffdc-4tssx    1/1     Running   0             110s
-batch-776d97ffdc-4w8mc    0/1     Pending   0             12m
-batch-776d97ffdc-hkv8c    1/1     Running   0             2m20s
-batch-776d97ffdc-qbmrx    0/1     Pending   0             7m39s
-batch-776d97ffdc-t8s6k    0/1     Pending   0             12m
-batch-94bd45c79-m42nm     1/1     Running   0             23m
-postgres-1                1/1     Running   1 (14m ago)   38m
-postgres-2                1/1     Running   1 (17m ago)   42m
-postgres-3                1/1     Running   0             42m
-worker-5f994df878-28n5h   1/1     Running   0             85m
-worker-5f994df878-2xw52   1/1     Running   0             85m
-worker-5f994df878-44hs9   1/1     Running   6 (14m ago)   85m
-worker-5f994df878-phtm7   1/1     Running   0             85m
+NAME                      READY   STATUS        RESTARTS      AGE
+api-798c48c576-5jl4s      1/1     Running       0             7m28s
+api-798c48c576-6t5c5      1/1     Running       0             7m39s
+api-798c48c576-7jhlv      1/1     Running       0             7m17s
+api-798c48c576-frwx5      1/1     Running       0             104s
+api-798c48c576-rsg4b      1/1     Running       0             7m39s
+api-798c48c576-s22gq      1/1     Running       0             104s
+api-798c48c576-t47td      1/1     Running       0             7m28s
+api-798c48c576-wvt84      1/1     Running       0             104s
+api-798c48c576-xvfrv      1/1     Running       0             7m39s
+batch-776d97ffdc-4tssx    1/1     Running       0             110s
+batch-776d97ffdc-4w8mc    0/1     Pending       0             12m
+batch-776d97ffdc-qbmrx    0/1     Pending       0             7m39s
+batch-776d97ffdc-hkv8c    1/1     Running       0             2m20s
+batch-59b7898d85-cw8x2    1/1     Terminating   0             2m43s
+batch-94bd45c79-m42nm     1/1     Running       0             23m
+postgres-1                1/1     Running       1 (14m ago)   38m
+postgres-3                1/1     Running       0             42m
+postgres-2                1/1     Running       1 (17m ago)   42m
+worker-5f994df878-28n5h   1/1     Running       0             85m
+worker-5f994df878-2xw52   1/1     Running       0             85m
+worker-5f994df878-44hs9   1/1     Running       6 (14m ago)   85m
+worker-5f994df878-phtm7   1/1     Running       0             85m
 ```
 
-Количество pending у batch увеличилось. Вернем обратно ресурсы апи и количество реплик апи:
+Количество pending у batch увеличилось. Смотрим ивенты (Preempted):
+
+```bash
+(.venv) ➜  lab4 git:(feat/lr4) ✗ kubectl get events --sort-by=.lastTimestamp \
+  | grep -Ei 'Preempted|Preempting|FailedScheduling' \
+  | tail -30
+...
+9s          Normal    Preempted                   pod/batch-59b7898d85-cw8x2             Preempted by pod 2d1577ad-908d-47cd-adf6-25b54847b949 on node lab4-worker
+...
+```
+
+Вернем обратно ресурсы апи и количество реплик апи:
 
 ```bash
 (.venv) ➜  lab4 git:(feat/lr4) ✗ kubectl get pods -w
@@ -686,7 +687,7 @@ worker-5f994df878-phtm7   1/1     Running   0             88m
 
 Pending снова 2.
 
-Итого. Часть batch не поместилась из-за нехватки cpu (Scheduler считает занятые ресурсы по реквестам). Апи и постгрес имеют более высокий приоритет, поэтому при нехватке ресурсов в кубере они могут вытеснить низкоприоритетный batch.ku
+Итого. Часть batch не поместилась из-за нехватки cpu (Scheduler считает занятые ресурсы по реквестам). Апи и постгрес имеют более высокий приоритет, поэтому при нехватке ресурсов в кубере они могут вытеснить низкоприоритетный batch.
 
 ## Часть 7. Давление по памяти, порядок жертв
 
@@ -716,7 +717,7 @@ evictionPressureTransitionPeriod: 0s
 У батча конфигурация такая:
 ```yaml
 batch:
-  replicas: 2
+  replicas: 5
   image: batch:v1
   port: 8082
   priorityClassName: shop-batch
@@ -797,3 +798,132 @@ worker-5f994df878-phtm7   Running   Burstable    <none>
 Получается, что Memory Pressure вытесняет менее защищенные поды (в данном случае батч), при этом апи и постгрес остались живыми с высокими приоритетами.
 
 ## Часть 8. Докажи SLA под нагрузкой
+
+SLA: не менее 95% запросов `POST /order` должны обрабатываться быстрее 300 мс, а доля ошибок должна оставаться ниже 1% при перегрузке кластера.
+
+Только перед этим по-хорошему надо прокидывать апи не через порт форвард, а условно через NodePort, чтобы запросы шли ко всем репликам, а не к одной.
+
+Поэтому небольшие правки в values.yaml и api-service.yaml:
+
+```yaml
+api:
+  replicas: 6
+  image: api:v5
+  port: 8000
+
+  service:
+    type: NodePort
+    nodePort: 30082
+  ...
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    app: api
+spec:
+  type: {{ .Values.api.service.type }}
+...
+```
+
+Мы также сейчас запустим hey на минут 5, и параллельно этому будем создавать нагрузку через batch, как в предудщей части.
+
+График, что запросы стабильно идут на наш апи:
+
+![reqs](img/reqs.png)
+
+График, что 4хх и 5хх у нас нулевые:
+
+![errors](img/rate_errors.png)
+
+График, что p95 < 300 мс:
+
+![sla](img/sla.png)
+
+Ну и деградация batch (5 реплик всего запущено на нагрузку кластера):
+
+![batch](img/batch_status.png)
+
+Отчет hey:
+
+```bash
+➜  lab4 git:(feat/lr4) ✗ ~/go/bin/hey \
+  -z 5m \ 
+  -c 5 \
+  -q 1 \
+  -m POST \
+  -T application/json \
+  -d '{
+    "phone_number": "+79991234567",
+    "customer_name": "Load Test",
+    "sku": "1234567",
+    "quantity": 1
+  }' \
+  http://172.20.0.3:30082/order
+
+Summary:
+  Total:        300.0096 secs
+  Slowest:      0.0636 secs
+  Fastest:      0.0040 secs
+  Average:      0.0064 secs
+  Requests/sec: 4.9998
+  
+  Total data:   76500 bytes
+  Size/request: 51 bytes
+
+Response time histogram:
+  0.004 [1]     |
+  0.010 [1438]  |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  0.016 [56]    |■■
+  0.022 [0]     |
+  0.028 [2]     |
+  0.034 [2]     |
+  0.040 [0]     |
+  0.046 [0]     |
+  0.052 [0]     |
+  0.058 [0]     |
+  0.064 [1]     |
+
+
+Latency distribution:
+  10%% in 0.0047 secs
+  25%% in 0.0052 secs
+  50%% in 0.0059 secs
+  75%% in 0.0071 secs
+  90%% in 0.0083 secs
+  95%% in 0.0096 secs
+  99%% in 0.0122 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:   0.0000 secs, 0.0000 secs, 0.0013 secs
+  DNS-lookup:   0.0000 secs, 0.0000 secs, 0.0000 secs
+  req write:    0.0000 secs, 0.0000 secs, 0.0027 secs
+  resp wait:    0.0062 secs, 0.0038 secs, 0.0609 secs
+  resp read:    0.0001 secs, 0.0000 secs, 0.0010 secs
+
+Status code distribution:
+  [201] 1500 responses
+```
+
+Тут тоже видно что SLA выполняется.
+
+## Часть 9. Мониторинг
+
+Для мониторинга приложения используется `kube-prometheus-stack` из Лабы 2. [PrometheusRules](k8s/shop-chart/templates/prometheus-rules.yaml)
+
+| Алерт | Условие | Назначение |
+|---|---|---|
+| `ApiHighLatencyP95` | p95 запросов `/order` превышает 300 мс в течение минуты | Обнаружение нарушения SLA по времени ответа |
+| `ApiHighErrorRate` | Доля HTTP 5xx превышает 1% в течение минуты | Обнаружение ошибок при обработке заказов |
+| `BatchEvicted` | За последние 5 минут обнаружен вытесненный batch-под | Контроль деградации фоновых задач при нехватке ресурсов |
+
+Для управления алертами используется Alertmanager, а для их просмотра Karma.
+
+Пример срабатывания алерта по вытеснению батча:
+
+![mon](img/mon.png)
+
+![alert](img/alert.png)
+
+![karma](img/karma.png)

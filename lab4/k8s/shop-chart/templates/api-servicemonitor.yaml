@@ -3,6 +3,7 @@ kind: ServiceMonitor
 metadata:
   name: api
   labels:
+    app: api
     release: mon       
 spec:
   selector:
@@ -15,3 +16,4 @@ spec:
     - port: http
       path: /metrics
       interval: 15s
+      scrapeTimeout: 10s
