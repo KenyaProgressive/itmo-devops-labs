@@ -1,0 +1,22 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres
+spec:
+  instances: 3
+
+  priorityClassName: {{ .Values.postgres.priorityClassName }}
+  enablePDB: {{ .Values.postgres.pdb.enabled }}
+
+  resources:
+    {{- toYaml .Values.postgres.resources | nindent 4 }}
+
+  storage:
+    size: 1Gi
+
+  bootstrap:
+    initdb:
+      database: lab3
+      owner: lab3-user
+      secret:
+        name: postgres-app-secret

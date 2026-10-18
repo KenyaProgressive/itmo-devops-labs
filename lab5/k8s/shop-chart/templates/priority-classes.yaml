@@ -1,0 +1,24 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+
+metadata:
+  name: {{ .Values.priorityClasses.high.name }}
+
+value: {{ .Values.priorityClasses.high.value }}
+
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "Priority for crit services"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+
+metadata:
+  name: {{ .Values.priorityClasses.low.name }}
+
+value: {{ .Values.priorityClasses.low.value }}
+
+globalDefault: false
+preemptionPolicy: PreemptLowerPriority
+description: "Priority for batch"

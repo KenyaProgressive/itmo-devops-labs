@@ -1,0 +1,26 @@
+{{- if and .Values.networkPolicies.enabled .Values.networkPolicies.dns.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  labels:
+    app.kubernetes.io/part-of: shop
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicies.dns.namespace | quote }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicies.dns.podLabels | nindent 14 }}
+      ports:
+        - protocol: UDP
+          port: {{ .Values.networkPolicies.dns.port }}
+        - protocol: TCP
+          port: {{ .Values.networkPolicies.dns.port }}
+{{- end }}
+

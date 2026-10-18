@@ -1,0 +1,46 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: shop-alerts
+  labels:
+    release: mon
+spec:
+  groups:
+    - name: shop.network
+      rules:
+        - alert: CiliumPolicyDropsHigh
+          expr: |
+            sum(rate(cilium_drop_count_total{reason="Policy denied"}[5m])) > 0.5
+          for: 2m
+          labels:
+            severity: warning
+            component: network
+          annotations:
+            summary: "Cilium: высокий rate Policy denied"
+            description: "Политики режут заметный поток (Policy denied > 0.5/s дольше 2m)."
+
+        - alert: CoreDnsErrorsHigh
+          expr: |
+            (
+              sum(rate(coredns_dns_responses_total{rcode!="NOERROR"}[5m]))
+              /
+              clamp_min(sum(rate(coredns_dns_responses_total[5m])), 0.001)
+            ) > 0.05
+          for: 2m
+          labels:
+            severity: warning
+            component: dns
+          annotations:
+            summary: "CoreDNS: доля ошибочных ответов > 5%"
+            description: "Больше 5% DNS-ответов не NOERROR дольше 2m."
+
+        - alert: ShopApiToPostgresBlocked
+          expr: |
+            sum(rate(cilium_drop_count_total{reason="Policy denied", direction="EGRESS"}[5m])) > 0.2
+          for: 2m
+          labels:
+            severity: critical
+            component: network
+          annotations:
+            summary: "EGRESS Policy denied: путь приложений режется"
+            description: "Исходящие дропы политик > 0.2/s дольше 2m (часто api/worker -> postgres)."
