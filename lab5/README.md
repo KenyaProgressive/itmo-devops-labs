@@ -2,16 +2,14 @@
 
 ## Часть 0. Выбор CNI
 
-**kind** - локальный Kubernetes в Docker. По умолчанию у него kindnet -  
-простой встроенный сетевой плагин. Он NetworkPolicy принимает, но не применяет  
-правило в кластере есть, а трафик всё равно ходит. Для zero-trust это бесполезно.
+По умолчанию в kind kindnet - простой встроенный сетевой плагин. Он NetworkPolicy принимает, но не применяет правило в кластере есть, а трафик всё равно ходит. Для zero-trust это бесполезно
 
 Выбрали Cilium, а не Calico, потому что
 
-1. Cilium реально применяет NetworkPoliсy - правила начинают резать трафик
-2. Есть Hubble - карта кто с кем общается и где пакеты дропаются. Это нужно в части 6
+1. Cilium реально применяет NetworkPoliсy и правила начинают резать трафик
+2. Есть Hubble - карта кто с кем общается и где пакеты дропаются, это нужно в части 6
 
-Calico политики тоже применяет, но готовой карты трафика как у Hubble нет диагностику пришлось бы собирать из логов/инструментов вручную 
+Calico политики тоже применяет, но готовой карты трафика как у Hubble нет диагностику пришлось бы собирать из логов вручную 
 
 ---
 
@@ -39,7 +37,9 @@ cilium install
 
 Cобрали образы `api:v5` и `worker:v2`положили образы в ноды kind (иначе кластер полезет в интернет)
 
-Поставили Kyverno + политики, CloudNativePG, kube-prometheus-stack/ Развернули api/worker/postgres
+Поставили Kyverno + политики, CloudNativePG, kube-prometheus-stack 
+
+Развернули api/worker/postgres
 
 Сняли taint с control-plane, чтобы поды жили на обеих нодах (нужно для проверки сети между нодами)
 
@@ -56,8 +56,8 @@ Cобрали образы `api:v5` и `worker:v2`положили образы 
 
 ![eth0](screens/02-pod-eth0.png)
 
-- интерфейс `eth0@if61` - это конец **veth** (виртуальный кабель: один конец в поде, второй на ноде; `if61` - номер парного конца на ноде);
-- IP пода: `10.244.1.106/32`.
+- интерфейс `eth0@if61` - это конец veth (виртуальный кабель у которого один конец в поде, второй на ноде`if61` - номер парного конца на ноде)
+- IP пода `10.244.1.106/32`
 
 **Маршрут** (`ip route`)
 
@@ -85,11 +85,11 @@ Cобрали образы `api:v5` и `worker:v2`положили образы 
 
 В [values.yaml](k8s/shop-chart/values.yaml) у api стоит `service.type: NodePort`, порт `30082`
 
-**NodePort** - на каждой ноде открыт один и тот же порт. Запрос на IP любой ноды:`30082` попадает в Service и дальше в живые поды api.
+**NodePort** - на каждой ноде открыт один и тот же порт. Запрос на IP любой ноды`30082` попадает в Service и дальше в живые поды api
 
-**LoadBalancer** - в облаке снаружи появляется один публичный IP балансировщика, а за ним обычно тот же Service/NodePort. В kind настоящего LoadBalancer нет без доп. софта.
+**LoadBalancer** - в облаке снаружи появляется один публичный IP балансировщика, а за ним обычно тот же Service/NodePort. В kind настоящего LoadBalancer нет без доп софта
 
-**Headless** (`ClusterIP: None`) - у сервиса нет виртуального IP: DNS сразу отдаёт IP подов. Так делают, когда клиент сам выбирает инстанс
+**Headless** (`ClusterIP: None`) - у сервиса нет виртуального IP, DNS сразу отдаёт IP подов. Так делают, когда клиент сам выбирает инстанс
 
 ### Как гоняли доказательство
 
@@ -100,7 +100,7 @@ Cобрали образы `api:v5` и `worker:v2`положили образы 
 DURATION=120 ./lab5/scripts/load-via-dns.sh
 ```
 
-Сначала ловили fail из-за плохого замера: ходили через `kubectl exec` в те же поды, которые хаос убивал, и ещё слишком быстро сносили реплики. Когда нагрузку перевели на обычный `curl` через NodePort, а хаос стал ждать Ready и давать поду время сняться с балансировки (`preStop`), получилось **1048 ok / 0 fail** - клиент не замечает смену IP подов.
+Сначала ловили fail из-за плохого замера, ходили через `kubectl exec` в те же поды, которые хаос убивал, и ещё слишком быстро сносили реплики. Когда нагрузку перевели на обычный `curl` через NodePort, а хаос стал ждать Ready и давать поду время сняться с балансировки (`preStop`), получилось **1048 ok / 0 fail** - клиент не замечает смену IP подов
 
 ![chaos load PASS](screens/05-chaos-load-pass.png)
 
@@ -110,7 +110,7 @@ DURATION=120 ./lab5/scripts/load-via-dns.sh
 
 **DNS** внутри кластера переводит имя `api` в ClusterIP сервиса  
 **Service** даёт стабильный виртуальный адрес и выбирает поды по лейблу `app=api`  
-**EndpointSlice** хранит IP только **готовых** подов, умершие из списка выкидываются  
+**EndpointSlice** хранит IP только готовых подов, умершие из списка выкидываются  
 **kube-proxy** на ноде раскладывает правила, пакет в Service уходит в один из готовых подов  
 **NodePort** с хоста IP ноды + порт `30082` попадает в тот же Service
 
@@ -128,8 +128,8 @@ kubectl -n kube-system get cm kube-proxy -o yaml | grep 'mode:'
 
 ## Часть 3. Целевая матрица доступа
 
-Сейчас сеть **плоская**, любой под может достучаться до любого.  
-Zero-trust наоборот, **по умолчанию нельзя**, открываем только нужные связи.
+Сейчас сеть плоская, любой под может достучаться до любого.  
+Zero-trust наоборот, по умолчанию нельзя, открываем только нужные связи.
 
 ### Целевая матрица
 
@@ -147,7 +147,7 @@ Zero-trust наоборот, **по умолчанию нельзя**, откр�
 
 реплики Postgres ходят друг к другу для своей работы (CloudNativePG)
 
-снаружи только api, до базы - только api и worker; DNS нужен всем, кто ходит по именам сервисов.
+снаружи только api, до базы - только api и worker, DNS нужен всем, кто ходит по именам сервисов
 
 ---
 
@@ -155,7 +155,7 @@ Zero-trust наоборот, **по умолчанию нельзя**, откр�
 
 ## Часть 4. Zero-trust через NetworkPolicy
 
-**NetworkPolicy** - правило кто к кому может ходить по сети. Cilium его реально применяет
+NetworkPolicy это правило кто к кому может ходить по сети. Cilium его реально применяет
 
 В чарте (`networkPolicies.enabled: true` в [values.yaml](k8s/shop-chart/values.yaml)) пять политик:
 
@@ -200,7 +200,7 @@ kubectl apply -f lab5/k8s/stranger-pod.yaml
 | api к DNS             | ok       | ok         |
 
 
-**окей:** разрешённое работает, запрещённое - нет.
+все как и хотели, разрешённое работает, запрещённое нет
 
 ---
 
@@ -208,7 +208,7 @@ kubectl apply -f lab5/k8s/stranger-pod.yaml
 
 ## Часть 6. Скрытая поломка
 
-**Hubble** - карта трафика Cilium. видно, кто с кем говорит и где пакет **DROPPED**
+Hubble - карта трафика Cilium. видно, кто с кем говорит и где пакет DROPPED
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -221,11 +221,11 @@ cilium hubble port-forward
 
 ### Скрипты
 
-- [demo-break.sh](scripts/demo-break.sh) - поломка + матрица + Hubble
+- [demo-break.sh](scripts/demo-break.sh) - вызываем поломку + выводим матрицу + Hubble
 - [break-network.sh](scripts/break-network.sh) - `helm upgrade` с overlay-поломкой
 - [check-matrix.sh](scripts/check-matrix.sh) - кто к кому ok / blocked
 - [hubble-drops.sh](scripts/hubble-drops.sh) - DROPPED на :5432 и DNS :53
-- [fix-network.sh](scripts/fix-network.sh) - откат политик и проверка
+- [fix-network.sh](scripts/fix-network.sh) - откат политик и проверка что все правильно откатили
 
 ```bash
 ./lab5/scripts/demo-break.sh wrong-port
@@ -262,17 +262,17 @@ api            -> DNS         expected=ok        actual=ok
 
 ### Пример 2 `wrong-label`
 
-В allow указан неверный лейбл кластера postgres. Матрица: api/worker к postgres blocked, DNS ok. В Hubble снова DROPPED на :5432 (политика не видит настоящие поды). DNS без дропов. Отличие от wrong-port - в YAML политик (лейбл, а не порт)
+В allow указан неверный лейбл кластера postgres. По матрице api/worker к postgres blocked, DNS ok. В Hubble снова DROPPED на :5432 (политика не видит настоящие поды). DNS без дропов. Отличие от wrong-port - в YAML политик (лейбл, а не порт)
 
 ### Пример 3 `no-dns`
 
-Выключен allow-dns. Матрица api к DNS = blocked (postgres тоже часто blocked - имя не резолвится). В Hubble дропы **:53** к CoreDNS (`EGRESS DENIED` UDP), блок :5432 может быть пустым
+Выключен allow-dns.  api к DNS = blocked (postgres тоже blocked, имя не резолвится). В Hubble дропы **:53** к CoreDNS (`EGRESS DENIED` UDP), блок :5432 может быть пустым
 
 ### Пример 4 `no-clients`
 
-У postgres пустой список клиентов. Матрица api/worker к postgres blocked, DNS ok. Связь режется на **входе** к postgres (ingress), не на DNS
+У postgres пустой список клиентов. api/worker к postgres blocked, DNS ok. Связь режется на входе к postgres (ingress), не на DNS
 
-После экспериментов Postgres один раз «упал» на failover/initdb (не мог достучаться до API Kubernetes). Добавили [ciliumnetworkpolicy-kube-apiserver.yaml](k8s/shop-chart/templates/ciliumnetworkpolicy-kube-apiserver.yaml). Матрица снова окей.
+После экспериментов Postgres один раз «упал» на failover/initdb (не мог достучаться до API Kubernetes). Добавили [ciliumnetworkpolicy-kube-apiserver.yaml](k8s/shop-chart/templates/ciliumnetworkpolicy-kube-apiserver.yaml) все заработало
 
 ---
 
@@ -280,23 +280,25 @@ api            -> DNS         expected=ok        actual=ok
 
 ## Часть 7. Мониторинг
 
-Стек из лабы 2, новый не поднимали. Включили scrape метрик Cilium/Hubble (`cilium upgrade` + ServiceMonitor с `release: mon`). В чарте: [api-servicemonitor.yaml](k8s/shop-chart/templates/api-servicemonitor.yaml), [worker-servicemonitor.yaml](k8s/shop-chart/templates/worker-servicemonitor.yaml), [prometheus-rules.yaml](k8s/shop-chart/templates/prometheus-rules.yaml).
+Стек из лабы 2 Включили scrape метрик Cilium/Hubble (`cilium upgrade` + ServiceMonitor с `release: mon`)
 
-Дашборд (дропы Cilium по `reason` / `direction`):
+В чарте: [api-servicemonitor.yaml](k8s/shop-chart/templates/api-servicemonitor.yaml), [worker-servicemonitor.yaml](k8s/shop-chart/templates/worker-servicemonitor.yaml), [prometheus-rules.yaml](k8s/shop-chart/templates/prometheus-rules.yaml)
+
+Дашборд (дропы Cilium по `reason` / `direction`)
 
 ![dashboard](screens/08-dashboard.png)
 
 ### Три алерта
 
-Правила в [prometheus-rules.yaml](k8s/shop-chart/templates/prometheus-rules.yaml). Каждый ждёт `for: 2m`, чтобы не дёргаться от короткого всплеска.
+Правила в [prometheus-rules.yaml](k8s/shop-chart/templates/prometheus-rules.yaml).Каждый ждёт `for: 2m` чтобы не дёргаться от короткого всплеска
 
-`CiliumPolicyDropsHigh` - если Cilium режет пакеты с причиной `Policy denied` быстрее чем ~0.5 в секунду дольше двух минут. Это общий сигнал: политики слишком жёсткие или кто-то ошибся в правилах (неверный порт, лейбл, пустой список клиентов).
+`CiliumPolicyDropsHigh` - если Cilium режет пакеты с причиной `Policy denied` быстрее чем ~0.5 в секунду дольше двух минут. Это общий сигнал, политики слишком жёсткие или кто-то ошибся в правилах (неверный порт, лейбл, пустой список клиентов)
 
-`CoreDnsErrorsHigh` - если больше 5% ответов CoreDNS не `NOERROR` дольше двух минут. Без нормального DNS сервисы не находятся по имени - в zero-trust это отдельная частая поломка (забыли allow-dns).
+`CoreDnsErrorsHigh` - если больше 5% ответов CoreDNS не `NOERROR` дольше двух минут (забыли allow-dns)
 
-`ShopApiToPostgresBlocked` - если растут именно **исходящие** (EGRESS) дропы `Policy denied` (> ~0.2/s). Ближе к симптому «приложение не может достучаться наружу» (часто api/worker -> postgres), а не любой дроп в кластере.
+`ShopApiToPostgresBlocked` - если растут именно **исходящие** (EGRESS) дропы `Policy denied` (> ~0.2/s) Приложение не может достучаться наружу ( api/worker -> postgres)
 
-Спровоцировали `wrong-port` и загорелся `CiliumPolicyDropsHigh` (firing, value ~ 1.6).  
-`ShopApiToPostgresBlocked` остался inactive дропы часто считаются на стороне приёмника как **INGRESS**, а этот алерт смотрит только **EGRESS**.
+Спровоцировали `wrong-port` и загорелся `CiliumPolicyDropsHigh` (firing, value ~ 1.6)  
+`ShopApiToPostgresBlocked` остался inactive дропы часто считаются на стороне приёмника как **INGRESS**, а этот алерт смотрит только **EGRESS**
 
 ![alert firing](screens/07-alert-firing.png)
