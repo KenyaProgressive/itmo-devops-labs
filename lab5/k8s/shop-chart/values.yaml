@@ -1,0 +1,99 @@
+networkPolicies:
+  enabled: true
+  dns:
+    enabled: true
+    namespace: kube-system
+    port: 53
+    podLabels:
+      k8s-app: kube-dns
+  postgres:
+    operatorNamespace: cnpg-system
+    allowPort: 5432
+    podLabels:
+      cnpg.io/cluster: postgres
+    clientAppLabels:
+      - api
+      - worker
+
+
+priorityClasses:
+  high:
+    name: shop-crit
+    value: 1000000
+
+  low:
+    name: shop-batch
+    value: -10000
+
+api:
+  replicas: 3
+  image: api:v5
+  port: 8000
+
+  service:
+    type: NodePort
+    nodePort: 30082
+
+  priorityClassName: shop-crit
+  pdb:
+    enabled: true
+    maxUnavailable: 1
+
+  placement:
+    mode: topologySpreadConstraints
+    topologyKey: kubernetes.io/hostname
+    maxSkew: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "100Mi"
+    limits:
+      memory: "100Mi"
+      cpu: "100m"
+
+postgres:
+  host: postgres-rw
+  port: 5432
+  database: lab3
+  secretName: postgres-app-secret
+  priorityClassName: shop-crit
+  pdb:
+    enabled: true
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "145Mi"
+    limits:
+      memory: "145Mi"
+      cpu: "200m"
+
+worker:
+  replicas: 2
+  image: worker:v2
+  port: 8081
+  resources:
+    requests:
+      cpu: "10m"
+      memory: "100Mi"
+    limits:
+      memory: "100Mi"
+      cpu: "100m"
+
+batch:
+  replicas: 0
+  image: batch:v1
+  port: 8082
+  priorityClassName: shop-batch
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "100Mi"
+    limits:
+      cpu: "200m"
+      memory: "1Gi"
+  config:
+    memMb: 700
+    cpuWorkers: 1
+    growStepMb: 64
+    growIntervalS: 1
+    logIntervalS: 5
