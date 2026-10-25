@@ -1,0 +1,97 @@
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: tlswatch-n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_METRICS=true
+      - N8N_METRICS_INCLUDE_MESSAGE_EVENT_BUS_METRICS=true
+      - NODE_FUNCTION_ALLOW_BUILTIN=tls,https
+      - GENERIC_TIMEZONE=Europe/Moscow
+      - TZ=Europe/Moscow
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - mcp-filesystem
+      - mcp-github
+      - gpt2giga
+
+  # MCP #1: Filesystem. stdio-сервер, обёрнутый в SSE мостом supergateway.
+  # Доступна только папка ./data (внутри контейнера /data).
+  mcp-filesystem:
+    image: node:20-alpine
+    container_name: tlswatch-mcp-fs
+    command: >
+      npx -y supergateway
+      --stdio "npx -y @modelcontextprotocol/server-filesystem /data"
+      --port 8000
+    volumes:
+      - ./data:/data
+
+  # MCP #2: GitHub (создание issue в тестовом репозитории).
+  mcp-github:
+    image: node:20-alpine
+    container_name: tlswatch-mcp-gh
+    command: >
+      npx -y supergateway
+      --stdio "npx -y @modelcontextprotocol/server-github"
+      --port 8000
+    environment:
+      - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+
+  # GigaChat: прокси OpenAI -> GigaChat. Сам получает и обновляет токен по
+  # Authorization key, а для n8n выглядит как обычный OpenAI-совместимый API.
+  # Порт наружу не публикуется: n8n ходит по http://gpt2giga:8090/v1
+  gpt2giga:
+    image: ghcr.io/ai-forever/gpt2giga:latest
+    container_name: tlswatch-gpt2giga
+    restart: unless-stopped
+    environment:
+      - GPT2GIGA_MODE=PROD
+      - GPT2GIGA_HOST=0.0.0.0
+      - GPT2GIGA_PORT=8090
+      - GPT2GIGA_ENABLE_API_KEY_AUTH=True
+      - GPT2GIGA_API_KEY=${GPT2GIGA_API_KEY}
+      - GIGACHAT_CREDENTIALS=${GIGACHAT_CREDENTIALS}
+      - GIGACHAT_SCOPE=GIGACHAT_API_PERS
+      - GIGACHAT_MODEL=GigaChat-2-Max
+      # у Сбера сертификат от российского УЦ, которого нет в образе
+      - GIGACHAT_VERIFY_SSL_CERTS=False
+
+  blackbox:
+    image: prom/blackbox-exporter:latest
+    container_name: tlswatch-blackbox
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    command: ["--config.file=/etc/blackbox_exporter/config.yml"]
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: tlswatch-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    depends_on:
+      - blackbox
+      - n8n
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: tlswatch-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  n8n_data:

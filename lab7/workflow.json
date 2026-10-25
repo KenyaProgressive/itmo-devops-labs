@@ -1,0 +1,389 @@
+{
+  "name": "TLS Watch: ежесуточная проверка сертификатов",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "b977ab85-2d8c-47a7-bebf-b4ec38d6048b",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        864,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "path": "tls-watch",
+        "options": {}
+      },
+      "id": "4c42ad1d-74ed-4f23-aba3-8f6f652a1822",
+      "name": "Webhook (ручной запуск)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        864,
+        144
+      ],
+      "webhookId": "e8e4c908-5cb0-4cf8-b7ce-8af90d1c7e68"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Быстрая проверка TLS без AI. Нужна переменная NODE_FUNCTION_ALLOW_BUILTIN=tls\nconst tls = require('tls');\n\n// Демо-список. Для боевого использования замените на свои домены.\nconst DOMAINS = [\n  // 'expired.badssl.com',\n  // 'self-signed.badssl.com',\n  // 'wrong.host.badssl.com',\n  // 'untrusted-root.badssl.com',\n  'example.com',\n];\nconst WARN_DAYS = 14;\n\nfunction check(host) {\n  return new Promise((resolve) => {\n    let done = false;\n    const finish = (r) => { if (!done) { done = true; resolve(r); } };\n    const s = tls.connect(\n      { host, port: 443, servername: host, rejectUnauthorized: false },\n      () => {\n        const c = s.getPeerCertificate();\n        const r = {\n          host,\n          authorized: s.authorized,\n          authError: s.authorizationError ? String(s.authorizationError) : null,\n          issuer: (c.issuer && (c.issuer.O || c.issuer.CN)) || null,\n          expires: c.valid_to,\n          daysLeft: Math.floor((new Date(c.valid_to) - Date.now()) / 86400000),\n        };\n        s.end();\n        finish(r);\n      }\n    );\n    s.setTimeout(10000, () => { s.destroy(); finish({ host, error: 'timeout' }); });\n    s.on('error', (e) => finish({ host, error: e.message }));\n  });\n}\n\nconst results = [];\nfor (const d of DOMAINS) results.push(await check(d));\n\nconst problems = [];\nfor (const r of results) {\n  const findings = [];\n  if (r.error) findings.push('Ошибка соединения: ' + r.error);\n  else {\n    if (r.daysLeft < 0) findings.push('Сертификат истёк ' + Math.abs(r.daysLeft) + ' дн. назад');\n    else if (r.daysLeft <= WARN_DAYS) findings.push('Сертификат истекает через ' + r.daysLeft + ' дн.');\n    if (!r.authorized) findings.push('Не проходит проверку: ' + r.authError);\n  }\n  if (findings.length) problems.push({ host: r.host, issuer: r.issuer || null, expires: r.expires || null, daysLeft: r.daysLeft ?? null, findings });\n}\n\nreturn [{ json: {\n  checkedAt: new Date().toISOString(),\n  total: results.length,\n  healthy: results.length - problems.length,\n  hasProblems: problems.length > 0,\n  problems,\n} }];"
+      },
+      "id": "1d7f3e0d-9568-4419-8fd4-dcae0188f384",
+      "name": "Быстрая проверка TLS (без AI)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7338461a-09e8-4193-9de0-b147df834af0",
+              "leftValue": "={{ $json.hasProblems }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2bb773ab-4720-45cb-983e-fb15f410ac0f",
+      "name": "Есть проблемы?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1392,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'Дата проверки: ' + $json.checkedAt.slice(0, 10) + '\\nПроверено доменов: ' + $json.total + ', здоровых: ' + $json.healthy + '\\nНайденные проблемы (JSON):\\n' + JSON.stringify($json.problems, null, 2) }}",
+        "options": {
+          "systemMessage": "# Skill: разбор TLS-инцидентов\n\nАгент получает список «подозрительных» доменов от быстрой проверки (без AI)\nи обязан подтвердить находки, классифицировать их, сохранить отчёт и завести issue.\n\n## Порядок действий\n\n1. Для КАЖДОГО домена из входных данных вызови `check_tls` и убедись, что находка воспроизводится.\n   Если не воспроизводится, пометь как «не подтверждено» и issue не создавай.\n2. Если домен основной (apex, например `example.com`, а не `api.example.com`), вызови `check_domain_expiry`.\n3. Если сертификат невалиден по подозрительной причине (чужой издатель, неожиданная смена)\n   или нужно исключить чужой выпуск, вызови `query_ct_logs`.\n4. Классифицируй каждую проблему как critical / warning / info по правилам ниже.\n5. Сформируй отчёт в Markdown и сохрани его через `write_file` в `/data/reports/YYYY-MM-DD.md`\n   (дата берётся из входных данных).\n6. Для critical и warning вызови `create_issue` (по одному на домен). Для info issue не создавай.\n7. Верни итоговое сообщение для дежурного (формат ниже).\n\n## Правила классификации\n\n- **critical**: сертификат истёк; не проходит проверка (не тот домен, самоподписанный,\n  недоверенный корень, битая цепочка); ошибка соединения; домен (регистрация) истёк;\n  в CT-логах свежий сертификат от неожиданного издателя.\n- **warning**: до истечения сертификата или домена 14 дней и меньше.\n- **info**: плановая смена сертификата при ожидаемом издателе; домен жив, но RDAP недоступен.\n\nОжидаемые издатели: Let's Encrypt, Google Trust Services.\n\n## Runbook (кратко, что рекомендовать)\n\n- Сертификат истёк или скоро истечёт: проверить, почему не сработало автообновление\n  (certbot/acme-клиент, DNS-проверка, права на файлы), выпустить новый, перезагрузить веб-сервер.\n- Не тот домен / цепочка: проверить, что выдан сертификат на нужное имя и подгружен fullchain.\n- Самоподписанный / недоверенный корень: заменить на сертификат публичного CA.\n- Чужой издатель в CT-логах: считать возможной компрометацией. Перевыпустить сертификат\n  с НОВЫМ ключом, отозвать старый, проверить доступы к DNS и аккаунту CA.\n- Домен скоро истечёт: продлить у регистратора, проверить привязку карты и контактный email.\n\n## Формат issue\n\n- репозиторий: owner=`KenyaProgressive`, repo=`itmo-devops-labs` (всегда передавай эти значения в `create_issue`).\n- title: `[TLS][critical|warning] <домен>: <краткая суть>`\n- body: что найдено, подтверждение (какие tools вызваны и что вернули), рекомендуемые шаги из runbook.\n- labels не указывать.\n\n## Формат итогового сообщения (plain text, до 10 строк)\n\n```\nTLS-проверка <дата>\ncritical: <N>, warning: <N>, info: <N>\n- <домен>: <суть> -> <issue URL или \"issue не создан\">\nОтчёт: /data/reports/<дата>.md\n```\n\n## Ограничения\n\n- Не делай выводов без подтверждения вызовом tool.\n- Не меняй инфраструктуру и не перевыпускай сертификаты, только рекомендуй.\n- Не создавай больше одного issue на домен за запуск.\n- Если tool вернул ошибку, укажи это в отчёте, а не придумывай результат.\n- Не выводи в ответ приватные данные, токены и ключи.",
+          "maxIterations": 15
+        }
+      },
+      "id": "9f3ae761-214f-4e41-935a-e33e3607d7f6",
+      "name": "AI Agent: разбор инцидентов",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        1664,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "GigaChat-2-Max",
+          "mode": "id"
+        },
+        "options": {
+          "temperature": 0
+        }
+      },
+      "id": "a8c26298-bc5f-4036-b2fc-662b3b35b009",
+      "name": "Chat Model (GigaChat через gpt2giga)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1968,
+        272
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "R02BDkJE58go2cXE",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "check_tls",
+        "description": "Проверяет TLS-сертификат домена. Вход: строка с именем хоста, например example.com. Возвращает JSON: валидность, издатель, срок, дни до истечения, отпечаток.",
+        "jsCode": "// query: имя хоста, например \"example.com\"\nconst tls = require('tls');\nconst host = String(query).trim();\nreturn await new Promise((resolve) => {\n  let done = false;\n  const finish = (o) => { if (!done) { done = true; resolve(JSON.stringify(o)); } };\n  const s = tls.connect({ host, port: 443, servername: host, rejectUnauthorized: false }, () => {\n    const c = s.getPeerCertificate();\n    finish({\n      host,\n      authorized: s.authorized,\n      authError: s.authorizationError ? String(s.authorizationError) : null,\n      issuer: (c.issuer && (c.issuer.O || c.issuer.CN)) || null,\n      subjectCN: c.subject && c.subject.CN,\n      validFrom: c.valid_from,\n      validTo: c.valid_to,\n      daysLeft: Math.floor((new Date(c.valid_to) - Date.now()) / 86400000),\n      fingerprint256: c.fingerprint256,\n    });\n    s.end();\n  });\n  s.setTimeout(10000, () => { s.destroy(); finish({ host, error: 'timeout' }); });\n  s.on('error', (e) => finish({ host, error: e.message }));\n});"
+      },
+      "id": "36f3e19f-34cb-4a4e-a84b-fde602259d7b",
+      "name": "check_tls",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.1,
+      "position": [
+        2080,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "name": "check_domain_expiry",
+        "description": "Узнаёт срок регистрации домена через RDAP. Вход: строка с основным (apex) доменом, например example.com. Возвращает JSON с датой истечения и днями до неё.",
+        "jsCode": "const https = require('https');\nfunction getJson(url, depth = 0) {\n  return new Promise((resolve, reject) => {\n    const req = https.get(url, { headers: { 'User-Agent': 'tls-watch/1.0', 'Accept': 'application/json' } }, (res) => {\n      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && depth < 5) {\n        res.resume();\n        return resolve(getJson(res.headers.location, depth + 1));\n      }\n      let body = '';\n      res.on('data', (c) => body += c);\n      res.on('end', () => {\n        if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));\n        try { resolve(JSON.parse(body)); } catch (e) { reject(new Error('Невалидный JSON')); }\n      });\n    });\n    req.setTimeout(20000, () => { req.destroy(); reject(new Error('timeout')); });\n    req.on('error', reject);\n  });\n}\n\n// query: основной домен, например \"example.com\"\nconst domain = String(query).trim();\ntry {\n  const r = await getJson('https://rdap.org/domain/' + encodeURIComponent(domain));\n  const ev = (r.events || []).find((e) => e.eventAction === 'expiration');\n  if (!ev) return JSON.stringify({ domain, error: 'RDAP не вернул дату истечения' });\n  return JSON.stringify({\n    domain,\n    expires: ev.eventDate,\n    daysLeft: Math.floor((new Date(ev.eventDate) - Date.now()) / 86400000),\n  });\n} catch (e) {\n  return JSON.stringify({ domain, error: 'RDAP недоступен: ' + e.message });\n}"
+      },
+      "id": "62fb08b3-2b17-447f-92d6-d076da8282b6",
+      "name": "check_domain_expiry",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.1,
+      "position": [
+        2208,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "name": "query_ct_logs",
+        "description": "Ищет в Certificate Transparency логах (crt.sh) свежие сертификаты для хоста и сообщает о выпусках от неожиданных издателей. Вход: строка 'host' или 'host,hours' (по умолчанию 24 часа).",
+        "jsCode": "const https = require('https');\nfunction getJson(url, depth = 0) {\n  return new Promise((resolve, reject) => {\n    const req = https.get(url, { headers: { 'User-Agent': 'tls-watch/1.0', 'Accept': 'application/json' } }, (res) => {\n      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && depth < 5) {\n        res.resume();\n        return resolve(getJson(res.headers.location, depth + 1));\n      }\n      let body = '';\n      res.on('data', (c) => body += c);\n      res.on('end', () => {\n        if (res.statusCode !== 200) return reject(new Error('HTTP ' + res.statusCode));\n        try { resolve(JSON.parse(body)); } catch (e) { reject(new Error('Невалидный JSON')); }\n      });\n    });\n    req.setTimeout(20000, () => { req.destroy(); reject(new Error('timeout')); });\n    req.on('error', reject);\n  });\n}\n\n// query: \"host\" или \"host,hours\" (по умолчанию 24 часа)\nconst parts = String(query).split(',');\nconst host = parts[0].trim();\nconst hours = parseInt(parts[1], 10) || 24;\nconst EXPECTED = [\"Let's Encrypt\", 'Google Trust Services'];\ntry {\n  const rows = await getJson('https://crt.sh/?q=' + encodeURIComponent(host) + '&output=json');\n  const since = Date.now() - hours * 3600000;\n  const recent = rows.filter((r) => {\n    const ts = r.entry_timestamp.endsWith('Z') ? r.entry_timestamp : r.entry_timestamp + 'Z';\n    return new Date(ts).getTime() > since;\n  });\n  const unexpected = recent.filter((r) => !EXPECTED.some((i) => r.issuer_name.includes(i)));\n  return JSON.stringify({\n    host, windowHours: hours,\n    recentCount: recent.length,\n    unexpectedCount: unexpected.length,\n    unexpectedIssuers: [...new Set(unexpected.map((r) => r.issuer_name))],\n  });\n} catch (e) {\n  return JSON.stringify({ host, error: 'crt.sh недоступен: ' + e.message });\n}"
+      },
+      "id": "67eb3d14-9dc4-4801-a395-cff81849c174",
+      "name": "query_ct_logs",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.1,
+      "position": [
+        2320,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "sseEndpoint": "http://mcp-filesystem:8000/sse",
+        "include": "selected",
+        "includeTools": [
+          "write_file"
+        ],
+        "options": {}
+      },
+      "id": "b0c53a95-1df8-4336-89c6-8cc1a56ba18d",
+      "name": "MCP Filesystem (write_file)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1,
+      "position": [
+        2448,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "sseEndpoint": "http://mcp-github:8000/sse",
+        "include": "selected",
+        "includeTools": [
+          "create_issue"
+        ],
+        "options": {}
+      },
+      "id": "32170e8c-791b-416f-b779-46944978ae36",
+      "name": "MCP GitHub (create_issue)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1,
+      "position": [
+        2560,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "YOUR_SMTP_LOGIN@example.com",
+        "toEmail": "DUTY_ENGINEER@example.com",
+        "subject": "={{ 'TLS-проверка ' + $now.toFormat('yyyy-MM-dd') }}",
+        "emailFormat": "text",
+        "text": "={{ $json.output }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "13e66047-a73a-44d8-b83f-53c44de05aa8",
+      "name": "Email: сводка дежурному",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2480,
+        -80
+      ],
+      "webhookId": "e0957e2c-60e8-403d-acab-36a8915bf77d",
+      "credentials": {
+        "smtp": {
+          "id": "LViZRVqpiZMa8RUS",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "60e6babd-f687-4626-b66d-47f092825549",
+      "name": "Всё в порядке (ничего не делаем)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1696,
+        192
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Быстрая проверка TLS (без AI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (ручной запуск)": {
+      "main": [
+        [
+          {
+            "node": "Быстрая проверка TLS (без AI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Быстрая проверка TLS (без AI)": {
+      "main": [
+        [
+          {
+            "node": "Есть проблемы?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Есть проблемы?": {
+      "main": [
+        [
+          {
+            "node": "AI Agent: разбор инцидентов",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Всё в порядке (ничего не делаем)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent: разбор инцидентов": {
+      "main": [
+        [
+          {
+            "node": "Email: сводка дежурному",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_tls": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent: разбор инцидентов",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_domain_expiry": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent: разбор инцидентов",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_ct_logs": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent: разбор инцидентов",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP Filesystem (write_file)": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent: разбор инцидентов",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP GitHub (create_issue)": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent: разбор инцидентов",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Model (GigaChat через gpt2giga)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent: разбор инцидентов",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "435a5563-a5e8-46bb-9ae3-b6da20299a37",
+  "nodeGroups": [],
+  "id": "0ElLT6aNDv5xRwpd",
+  "tags": []
+}

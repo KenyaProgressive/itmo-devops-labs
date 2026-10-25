@@ -1,0 +1,29 @@
+groups:
+  - name: tls-watch
+    rules:
+      # 1. Сертификат скоро истечёт (или уже истёк)
+      - alert: TLSCertExpiringSoon
+        expr: (probe_ssl_earliest_cert_expiry{job="tls-expiry"} - time()) / 86400 < 14
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Сертификат {{ $labels.instance }} истекает менее чем через 14 дней"
+
+      # 2. Эндпоинт недоступен или сертификат невалиден (независимо от n8n)
+      - alert: HTTPSProbeFailed
+        expr: probe_success{job="https"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTPS-проба {{ $labels.instance }} не проходит"
+
+      # 3. Сам наблюдатель молчит: нет успешных запусков workflow за 26 часов
+      - alert: N8nWatcherSilent
+        expr: sum(increase(n8n_workflow_success_total[26h])) < 1 or absent(n8n_workflow_success_total)
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "n8n: нет успешных запусков workflow за 26 часов"

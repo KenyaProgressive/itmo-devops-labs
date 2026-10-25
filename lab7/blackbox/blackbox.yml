@@ -1,0 +1,19 @@
+modules:
+  # Строгая проверка HTTPS: невалидный сертификат даёт probe_success = 0
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      preferred_ip_protocol: ip4
+      fail_if_not_ssl: true
+
+  # Только TLS-рукопожатие без проверки доверия: нужен, чтобы получить срок
+  # сертификата даже у «плохих» доменов (probe_ssl_earliest_cert_expiry)
+  tcp_tls:
+    prober: tcp
+    timeout: 10s
+    tcp:
+      preferred_ip_protocol: ip4
+      tls: true
+      tls_config:
+        insecure_skip_verify: true
